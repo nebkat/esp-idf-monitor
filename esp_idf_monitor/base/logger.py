@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import datetime
@@ -10,18 +10,12 @@ from typing import List  # noqa: F401
 from typing import Optional  # noqa: F401
 
 from esp_idf_panic_decoder import PcAddressDecoder
+from esp_pylib.logger import log
+from rich.markup import escape
 from serial.tools import miniterm
 
 from esp_idf_monitor.base.key_config import MENU_KEY
 from esp_idf_monitor.base.key_config import TOGGLE_OUTPUT_KEY
-
-from .output_helpers import COMMON_PREFIX
-from .output_helpers import error_print
-from .output_helpers import green_print
-from .output_helpers import normal_print
-from .output_helpers import note_print
-from .output_helpers import red_print
-from .output_helpers import yellow_print
 
 key_description = miniterm.key_description
 
@@ -90,18 +84,22 @@ class Logger:
             )
             try:
                 self.log_file = open(name, 'wb+')
-                note_print(f'Logging is enabled into file {name}', prefix='\n')
+                log.print('')
+                log.note(f'Logging is enabled into file {name}')
             except Exception as e:  # noqa
-                error_print(f'Log file {name} cannot be created: {e}', prefix='\n')
+                log.print('')
+                log.err(f'Log file {name} cannot be created: {e}')
 
     def stop_logging(self):  # type: () -> None
         if self._log_file:
             try:
                 name = self._log_file.name
                 self._log_file.close()
-                note_print(f'Logging is disabled and file {name} has been closed', prefix='\n')
+                log.print('')
+                log.note(f'Logging is disabled and file {name} has been closed')
             except Exception as e:  # noqa
-                error_print(f'Log file cannot be closed: {e}', prefix='\n')
+                log.print('')
+                log.err(f'Log file cannot be closed: {e}')
             finally:
                 self._log_file = None
 
@@ -149,17 +147,17 @@ class Logger:
                     string = string.encode()  # type: ignore
                 self._log_file.write(string)  # type: ignore
             except Exception as e:
-                error_print(f'Cannot write to file: {e}', prefix='\n')
+                log.print('')
+                log.err(f'Cannot write to file: {e}')
                 # don't fill-up the screen with the previous errors (probably consequent prints would fail also)
                 self.stop_logging()
 
     def output_toggle(self):  # type: () -> None
         self.output_enabled = not self.output_enabled
-        note_print(
-            f'Toggle output display: {self.output_enabled}, '
+        log.note(
+            f'\nToggle output display: {self.output_enabled}, '
             f'Type {key_description(MENU_KEY)} {key_description(TOGGLE_OUTPUT_KEY)} '
             'to show/disable output again.',
-            prefix='\n',
         )
 
     def handle_possible_pc_address_in_line(self, line: bytes, insert_new_line: bool = False) -> None:
@@ -177,28 +175,25 @@ class Logger:
 
         # For each address and its corresponding trace
         for address, trace in translated:
-            # Print the address (start of line, white)
-            self.print(f'{COMMON_PREFIX} {address}: ', console_printer=normal_print)
+            trace_line = f'{address}: '
             if not trace:
                 # No trace entries (this should not happen, but just in case, red)
-                self.print('(unknown)', console_printer=red_print)
+                trace_line += '[bold red](unknown)[/bold red]'
+                self.print(trace_line, console_printer=log.print)
                 continue
 
             # For each source location in the trace
             for idx, entry in enumerate(trace):
                 if idx > 0:
                     # More than 1 entry indicates inlined functions (white).
-                    self.print(f'{COMMON_PREFIX} (inlined by) ', console_printer=normal_print)
+                    trace_line += '(inlined by) '
 
                 # Print the function name (yellow)
-                self.print(entry.func, console_printer=lambda msg: yellow_print(msg, newline=''))
+                trace_line += f'[yellow]{escape(entry.func)}[/yellow]'
                 if entry.path == 'ROM':
                     # Special case for ROM paths (green)
-                    self.print(' in ', console_printer=normal_print)
-                    self.print('ROM', console_printer=green_print)
+                    trace_line += ' in [green]ROM[/green]'
                 else:
                     # Print the file path and line number (green:red)
-                    self.print(' at ', console_printer=normal_print)
-                    self.print(entry.path, console_printer=lambda msg: green_print(msg, newline=''))
-                    self.print(':', console_printer=normal_print)
-                    self.print(entry.line, console_printer=red_print)
+                    trace_line += f' at [green]{escape(entry.path)}[/green]:[bold red]{entry.line}[/bold red]'
+            self.print(trace_line, console_printer=log.print)

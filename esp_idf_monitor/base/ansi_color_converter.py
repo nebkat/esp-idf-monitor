@@ -9,7 +9,7 @@ from io import TextIOBase  # noqa: F401
 from typing import TextIO  # noqa: F401
 from typing import Union  # noqa: F401
 
-from .output_helpers import ANSI_NORMAL
+from .output_helpers import ANSI_NORMAL_B
 
 STD_OUTPUT_HANDLE = -11
 STD_ERROR_HANDLE = -12
@@ -104,7 +104,7 @@ class ANSIColorConverter:
                 self.matched = b
             elif (length == 1 and b == b'[') or (1 < length < 7):
                 self.matched += b
-                if self.matched == ANSI_NORMAL.encode('latin-1'):  # reset console
+                if self.matched == ANSI_NORMAL_B:  # reset console
                     # Flush is required only with Python3 - switching color before it is printed would mess up console
                     self.flush()
                     SetConsoleTextAttribute(self.handle, FOREGROUND_GREY)

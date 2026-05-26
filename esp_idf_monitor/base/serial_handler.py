@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import hashlib
@@ -13,6 +13,7 @@ from typing import Union  # noqa: F401
 
 import serial  # noqa: F401
 from esp_idf_panic_decoder import PanicOutputDecoder
+from esp_pylib.logger import log
 from serial.tools import miniterm  # noqa: F401
 
 from .binlog import BinaryLog
@@ -47,9 +48,6 @@ from .output_helpers import ANSI_NORMAL_B
 from .output_helpers import ANSI_RED_B
 from .output_helpers import ANSI_YELLOW_B
 from .output_helpers import AUTO_COLOR_REGEX
-from .output_helpers import error_print
-from .output_helpers import note_print
-from .output_helpers import warning_print
 from .reset import Reset
 from .serial_reader import Reader  # noqa: F401
 from .stoppable_thread import StoppableThread  # noqa: F401
@@ -69,7 +67,7 @@ def run_make(target, make, console, console_parser, event_queue, cmd_queue, logg
         popen_args = make + [target]
     else:
         popen_args = [make, target]
-    note_print(f'Running {" ".join(popen_args)}...')
+    log.note(f'Running {" ".join(popen_args)}...')
     p = subprocess.Popen(popen_args, env=os.environ)
     try:
         p.wait()
@@ -78,7 +76,7 @@ def run_make(target, make, console, console_parser, event_queue, cmd_queue, logg
     if p.returncode != 0:
         if non_interactive:
             # cannot prompt for the next action without a TTY on stdin
-            error_print('Build failed')
+            log.err('Build failed')
         else:
             prompt_next_action('Build failed', console, console_parser, event_queue, cmd_queue)
     else:
@@ -244,7 +242,7 @@ class SerialHandler:
                     decoded_line = line_strip.decode(errors='ignore')
                     self.decode_error_cnt += 1
                     if self.decode_error_cnt >= 3:
-                        warning_print(
+                        log.warn(
                             'Failed to decode multiple lines in a row. Try checking the baud rate and '
                             'XTAL frequency setting in menuconfig'
                         )
@@ -301,7 +299,7 @@ class SerialHandler:
 
         if self._reading_panic == PANIC_IDLE and re.search(PANIC_START, line.decode('ascii', errors='ignore')):
             self._reading_panic = PANIC_READING
-            note_print('Stack dump detected')
+            log.print('Stack dump detected', style='yellow')
 
         if self._reading_panic == PANIC_READING and PANIC_STACK_DUMP in line:
             self._reading_panic = PANIC_READING_STACK
@@ -316,10 +314,11 @@ class SerialHandler:
             try:
                 out = self.panic_handler.process_panic_output(self._panic_buffer)
                 if out:
-                    note_print('Backtrace:\n\n', prefix='\n')
+                    log.print('')
+                    log.print('Backtrace:\n\n', style='yellow')
                     self.logger.print(out)
             except subprocess.CalledProcessError as e:
-                warning_print(f'Failed to run gdb_panic_server.py script: {e}\n{e.output}\n\n')
+                log.warn(f'Failed to run gdb_panic_server.py script: {e}\n{e.output}\n\n')
                 # in case of error, print the rest of panic buffer that wasn't logged yet
                 # we stopped logging with PANIC_STACK_DUMP and re-enabled logging with PANIC_END
                 l_idx = self._panic_buffer.find(PANIC_STACK_DUMP)
@@ -340,7 +339,7 @@ class SerialHandler:
         if not file_sha256_flashed:
             return
         if not all([os.path.exists(file) for file in self.elf_files]):
-            warning_print(
+            log.warn(
                 'ELF file not found. '
                 "You need to build & flash the project before running 'monitor', "
                 'and the binary on the device must match the one in the build directory exactly. '
@@ -351,7 +350,7 @@ class SerialHandler:
                 if file_sha256_flashed in f'{file_sha256_build}':
                     break
             else:
-                warning_print(
+                log.warn(
                     f'Checksum mismatch between flashed and built applications. '
                     f'Checksum of built application is {file_sha256_build}'
                 )
@@ -361,7 +360,7 @@ class SerialHandler:
 
         if chip == 'linux':
             if cmd in [CMD_RESET, CMD_MAKE, CMD_APP_FLASH, CMD_ENTER_BOOT]:
-                warning_print('Linux target does not support this command')
+                log.warn('Linux target does not support this command')
                 return
 
         if cmd == CMD_STOP:
@@ -381,7 +380,7 @@ class SerialHandler:
         elif cmd == CMD_TOGGLE_TIMESTAMPS:
             self.logger.toggle_timestamps()
         elif cmd == CMD_ENTER_BOOT:
-            note_print(
+            log.note(
                 'Pause app (enter bootloader mode), press '
                 f'{key_description(MENU_KEY)} {key_description(CHIP_RESET_KEY)} to restart'
             )

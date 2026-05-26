@@ -7,18 +7,15 @@ import sys
 import time
 
 import serial
-from serial.tools import list_ports
+from esp_pylib.logger import log
+from esp_pylib.serial_ports import get_port_names
+from esp_pylib.serial_reset import PIN_HIGH
+from esp_pylib.serial_reset import PIN_LOW
 
 from .constants import ASYNC_CLOSING_WAIT_NONE
 from .constants import CHECK_ALIVE_FLAG_TIMEOUT
-from .constants import FILTERED_PORTS
-from .constants import HIGH
-from .constants import LOW
 from .constants import RECONNECT_DELAY
 from .constants import TAG_SERIAL
-from .output_helpers import error_print
-from .output_helpers import note_print
-from .output_helpers import yellow_print
 from .reset import Reset
 from .stoppable_thread import StoppableThread
 
@@ -62,11 +59,11 @@ class SerialReader(Reader):
                 print(e)
                 if self.open_port_attempts == 1:
                     # If the connection to the port fails and --open-port-attempts was not specified,
-                    # recommend other available ports and exit.
-                    port_list = '\n'.join(
-                        [p.device for p in list_ports.comports() if not p.device.endswith(FILTERED_PORTS)]
-                    )
-                    note_print(f'Connection to {self.serial.portstr} failed. Available ports:\n{port_list}')
+                    # recommend other available ports and exit. get_port_names() already
+                    # excludes the macOS virtual ports the legacy FILTERED_PORTS list
+                    # used to filter manually.
+                    port_list = '\n'.join(get_port_names())
+                    log.err(f'Connection to {self.serial.portstr} failed. Available ports:\n{port_list}')
                     return
             self.gdb_exit = False
         try:
@@ -81,8 +78,8 @@ class SerialReader(Reader):
                     data = b''
                     # self.serial.open() was successful before, therefore, this is an issue related to
                     # the disappearance of the device
-                    error_print(str(e))
-                    note_print('Waiting for the device to reconnect', newline='')
+                    log.err(str(e))
+                    log.print('Waiting for the device to reconnect', end='', style='yellow')
                     self.close_serial()
                     while self.alive:  # so that exiting monitor works while waiting
                         try:
@@ -92,10 +89,10 @@ class SerialReader(Reader):
                             self.reset = False
                             break  # device connected
                         except (serial.SerialException, OSError):
-                            yellow_print('.', newline='')
+                            log.print('.', end='', style='yellow')
                             sys.stderr.flush()
 
-                    yellow_print('')  # go to new line
+                    log.print('')  # go to new line
                 if data:
                     self.event_queue.put((TAG_SERIAL, data), False)
         finally:
@@ -103,8 +100,8 @@ class SerialReader(Reader):
 
     def open_serial(self, reset: bool) -> None:
         # set the DTR/RTS into LOW prior open
-        self.reset_strategy._setRTS(LOW)
-        self.reset_strategy._setDTR(LOW)
+        self.reset_strategy._setRTS(PIN_LOW)
+        self.reset_strategy._setDTR(PIN_LOW)
 
         self.serial.open()
 
@@ -112,8 +109,8 @@ class SerialReader(Reader):
         # when --no-reset is used, use the default behavior even if custom hard reset is set
         if not self.reset_strategy.custom_hard_seq or not reset:
             # set DTR/RTS into expected HIGH state, but set the RTS first to avoid reset
-            self.reset_strategy._setRTS(HIGH)
-            self.reset_strategy._setDTR(HIGH)
+            self.reset_strategy._setRTS(PIN_HIGH)
+            self.reset_strategy._setDTR(PIN_HIGH)
         if reset:
             self.reset_strategy.hard()
 

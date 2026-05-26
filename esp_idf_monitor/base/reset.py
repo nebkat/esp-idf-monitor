@@ -1,42 +1,43 @@
-# SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
+"""Reset strategy layered on top of `esp_pylib.serial_reset`.
 
-import os
-import struct
-import time
+The DTR/RTS primitives, the four named reset sequences, and the custom
+``D|R|W|U``-language parser live in `esp_pylib.serial_reset`. The
+`Reset` class below owns the *strategy* layer — which sequence to
+run for the active chip / connection mode, per-chip timings from
+`chip_specific_config`, the precedence rules between
+``custom_reset_sequence`` settings in the ``esp-idf-monitor`` and
+``esptool`` config sections, and the user-facing "Using custom reset
+sequence ..." messages.
+"""
+
 from typing import Optional
 
 import serial
-from serial.tools import list_ports
+from esp_pylib.constants import USB_JTAG_SERIAL_PID
+from esp_pylib.errors import PortVidPidNotFoundError
+from esp_pylib.logger import log
+from esp_pylib.serial_ports import get_port_vid_pid
+from esp_pylib.serial_reset import classic_bootloader_reset
+from esp_pylib.serial_reset import execute_custom_reset
+from esp_pylib.serial_reset import hard_reset
+from esp_pylib.serial_reset import set_dtr
+from esp_pylib.serial_reset import set_rts
+from esp_pylib.serial_reset import usb_jtag_bootloader_reset
 
 from esp_idf_monitor.base.chip_specific_config import get_chip_config
-from esp_idf_monitor.base.constants import HIGH
-from esp_idf_monitor.base.constants import LOW
-from esp_idf_monitor.base.constants import USB_JTAG_SERIAL_PID
-from esp_idf_monitor.base.output_helpers import error_print
-from esp_idf_monitor.base.output_helpers import note_print
 from esp_idf_monitor.config import Config
-
-if os.name != 'nt':
-    import fcntl
-    import termios
-
-    # Constants used for terminal status lines reading/setting.
-    # Taken from pySerial's backend for IO:
-    # https://github.com/pyserial/pyserial/blob/master/serial/serialposix.py
-    TIOCMSET = getattr(termios, 'TIOCMSET', 0x5418)
-    TIOCMGET = getattr(termios, 'TIOCMGET', 0x5415)
-    TIOCM_DTR = getattr(termios, 'TIOCM_DTR', 0x002)
-    TIOCM_RTS = getattr(termios, 'TIOCM_RTS', 0x004)
 
 
 class Reset:
-    format_dict = {
-        'D': 'self._setDTR({})',
-        'R': 'self._setRTS({})',
-        'W': 'time.sleep({})',
-        'U': 'self._setDTRandRTS({})',
-    }
+    """Per-chip reset strategy.
+
+    Decides whether to drive the standard UART pin-toggle sequence, the
+    USB-Serial-JTAG sequence, or a user-supplied custom sequence from
+    ``custom_reset_sequence`` / ``custom_hard_reset_sequence`` in the
+    config file.
+    """
 
     def __init__(self, serial_instance: serial.Serial, chip: str) -> None:
         self.serial_instance = serial_instance
@@ -45,118 +46,108 @@ class Reset:
         self._load_config()
 
     def _load_config(self) -> None:
-        """Load configuration for custom reset sequences.
-        Look for custom_reset_sequence and custom_hard_reset_sequence
-        in esp-idf-monitor config, if not found fallback to esptool config.
+        """Load custom reset sequence configuration.
+
+        Order of precedence:
+          1. ``custom_reset_sequence`` / ``custom_hard_reset_sequence`` in
+             the ``[esp-idf-monitor]`` section of the active config file.
+          2. The matching keys in the ``[esptool]`` section (falling back
+             so that a user with an esptool config doesn't have to
+             duplicate the entry for the monitor).
         """
         custom_cfg = Config()
         custom_config, self.config_path = custom_cfg.load_configuration()
-        # try to get the custom reset sequence from esp-idf-monitor
         self.bootloader_reset_from_esptool = False
         self.hard_reset_from_esptool = False
         self.custom_seq = custom_config['esp-idf-monitor'].get('custom_reset_sequence')
         self.custom_hard_seq = custom_config['esp-idf-monitor'].get('custom_hard_reset_sequence')
         if self.config_path is None:
-            # config for esp-idf-monitor was not found, looking for esptool configuration
-            # this is required in case the config file doesn't contain esp-idf-monitor section at all
+            # The monitor section wasn't present; try the esptool config so
+            # that an existing ``[esptool]`` reset sequence still applies.
             custom_cfg = Config(config_name='esptool')
             custom_config, self.config_path = custom_cfg.load_configuration()
         if self.custom_seq is None and 'esptool' in custom_config.keys():
-            # get bootloader reset sequence from esptool section
             self.custom_seq = custom_config['esptool'].get('custom_reset_sequence')
             self.bootloader_reset_from_esptool = self.custom_seq is not None
         if self.custom_hard_seq is None and 'esptool' in custom_config.keys():
-            # get hard reset sequence from esptool section
             self.custom_hard_seq = custom_config['esptool'].get('custom_hard_reset_sequence')
             self.hard_reset_from_esptool = self.custom_hard_seq is not None
 
     def _get_port_pid(self) -> Optional[int]:
-        """Get port PID to differentiate between JTAG and UART reset sequences"""
+        """Return the USB PID of the connected adapter, or ``None``.
+
+        Used to decide between the classic UART sequence and the
+        USB-Serial-JTAG sequence (PID ``0x1001``). The pyserial URL
+        handlers (e.g. ``rfc2217://``) and the Linux subprocess "target"
+        used in linux-mode tests have no USB identity — those map to
+        ``None``, and the standard UART path is used.
+        """
+        # Linux target subprocesses don't expose a ``.port`` attribute and
+        # have no USB identity to look up; return None so to_bootloader()
+        # falls through to the classic UART path.
         if not hasattr(self.serial_instance, 'port'):
-            # Linux target serial does not have a port and thus does not support resseting
             return None
-        for port in list_ports.comports():
-            if port.device == self.serial_instance.port:
-                return port.pid  # type: ignore
-        return None  # port not found in connected ports
+        try:
+            _, pid = get_port_vid_pid(self.serial_instance.port)
+        except PortVidPidNotFoundError:
+            # A perfectly normal outcome for ``rfc2217://`` URLs, unplugged
+            # devices, or platforms where the device path isn't listed by
+            # pyserial. Fall back to the standard reset path.
+            return None
+        return pid
+
+    # ------------------------------------------------------------------
+    # Pin primitives — preserved for the small handful of callers that
+    # reach in directly (notably ``serial_reader.open_serial``). New code
+    # should call ``esp_pylib.serial_reset.set_dtr`` / ``set_rts`` instead.
+    # ------------------------------------------------------------------
 
     def _setDTR(self, value: bool) -> None:
-        """Wrapper for setting DTR"""
-        self.serial_instance.setDTR(value)
+        set_dtr(self.serial_instance, value)
 
     def _setRTS(self, value: bool) -> None:
-        """Wrapper for setting RTS with workaround for Windows"""
-        self.serial_instance.setRTS(value)
-        self.serial_instance.setDTR(self.serial_instance.dtr)  # usbser.sys workaround
+        set_rts(self.serial_instance, value)
 
-    def _setDTRandRTS(self, dtr: bool = HIGH, rts: bool = HIGH) -> None:
-        """Set DTR and RTS at the same time, this is only supported on linux with custom reset sequence"""
-        if not self.serial_instance.is_open:
-            error_print('Serial port is not connected')
-            return None
-        status = struct.unpack('I', fcntl.ioctl(self.serial_instance.fileno(), TIOCMGET, struct.pack('I', 0)))[0]
-        if dtr:
-            status |= TIOCM_DTR
-        else:
-            status &= ~TIOCM_DTR
-        if rts:
-            status |= TIOCM_RTS
-        else:
-            status &= ~TIOCM_RTS
-        fcntl.ioctl(self.serial_instance.fileno(), TIOCMSET, struct.pack('I', status))
-
-    def _parse_string_to_seq(self, seq_str: str, option_name: str = 'custom_reset_sequence') -> str:
-        """Parse custom reset sequence from a config"""
-        try:
-            cmds = seq_str.split('|')
-            fn_calls_list = [self.format_dict[cmd[0]].format(cmd[1:]) for cmd in cmds]
-        except Exception as e:
-            error_print(f'Invalid "{option_name}" option format: {e}')
-            return ''
-        return '\n'.join(fn_calls_list)
+    # ------------------------------------------------------------------
+    # Public actions
+    # ------------------------------------------------------------------
 
     def hard(self) -> None:
-        """Hard reset chip"""
+        """Hard reset the chip via ``EN`` pulse, or a custom sequence."""
         if self.custom_hard_seq:
             source = 'esptool ' if self.hard_reset_from_esptool else ''
-            note_print(f'Using custom hard reset sequence from {source}config file: {self.config_path}')
-            exec(self._parse_string_to_seq(self.custom_hard_seq, 'custom_hard_reset_sequence'))
-        else:
-            self._setRTS(LOW)  # EN=LOW, chip in reset
-            time.sleep(self.chip_config['reset'])
-            self._setRTS(HIGH)  # EN=HIGH, chip out of reset
+            log.note(f'Using custom hard reset sequence from {source}config file: {self.config_path}')
+            self._run_custom_sequence(self.custom_hard_seq, 'custom_hard_reset_sequence')
+            return
+        hard_reset(self.serial_instance, hold_delay=self.chip_config['reset'])
 
     def to_bootloader(self) -> None:
-        """Reset chip into bootloader"""
+        """Reset the chip into the bootloader.
+
+        Routes between the three sequences:
+          * Custom (when configured) — used unconditionally.
+          * USB-Serial-JTAG — when the connected adapter's PID matches
+            ``USB_JTAG_SERIAL_PID``.
+          * Classic UART — fallback for every other adapter; uses the
+            per-chip ``enter_boot_set`` / ``enter_boot_unset`` timings.
+        """
         if self.custom_seq:
-            # use custom reset sequence set in config file
             source = 'esptool ' if self.bootloader_reset_from_esptool else ''
-            note_print(f'Using custom reset sequence from {source}config file: {self.config_path}')
-            exec(self._parse_string_to_seq(self.custom_seq))
-        elif self.port_pid == USB_JTAG_SERIAL_PID:
-            # use reset sequence for JTAG
-            self._setRTS(HIGH)
-            self._setDTR(HIGH)  # Idle
-            time.sleep(0.1)
-            self._setDTR(LOW)  # Set IO0
-            self._setRTS(HIGH)
-            time.sleep(0.1)
-            self._setRTS(LOW)  # Reset.
-            self._setDTR(HIGH)
-            self._setRTS(LOW)  # RTS set as Windows only propagates DTR on RTS setting
-            time.sleep(0.1)
-            self._setDTR(HIGH)
-            self._setRTS(HIGH)  # Chip out of reset
-        else:
-            # use traditional reset sequence
-            self._setDTR(HIGH)  # IO0=HIGH
-            self._setRTS(LOW)  # EN=LOW, chip in reset
-            time.sleep(
-                self.chip_config['enter_boot_set']
-            )  # timeouts taken from esptool.py, includes esp32r0 workaround. defaults: 0.1
-            self._setDTR(LOW)  # IO0=LOW
-            self._setRTS(HIGH)  # EN=HIGH, chip out of reset
-            time.sleep(
-                self.chip_config['enter_boot_unset']
-            )  # timeouts taken from esptool.py, includes esp32r0 workaround. defaults: 0.05
-            self._setDTR(HIGH)  # IO0=HIGH, done
+            log.note(f'Using custom reset sequence from {source}config file: {self.config_path}')
+            self._run_custom_sequence(self.custom_seq, 'custom_reset_sequence')
+            return
+        if self.port_pid == USB_JTAG_SERIAL_PID:
+            usb_jtag_bootloader_reset(self.serial_instance)
+            return
+        classic_bootloader_reset(
+            self.serial_instance,
+            enter_boot_delay=self.chip_config['enter_boot_set'],
+            reset_delay=self.chip_config['enter_boot_unset'],
+        )
+
+    def _run_custom_sequence(self, seq_str: str, option_name: str) -> None:
+        """Execute `seq_str` via `execute_custom_reset`."""
+        try:
+            execute_custom_reset(self.serial_instance, seq_str)
+        except ValueError as e:
+            log.err(f'Invalid "{option_name}" option format: {e}')

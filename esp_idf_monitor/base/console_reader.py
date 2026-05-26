@@ -7,12 +7,12 @@ import queue  # noqa: F401
 import sys
 import time
 
+from esp_pylib.logger import log
 from serial.tools.miniterm import Console  # noqa: F401
 
 from .console_parser import ConsoleParser  # noqa: F401
 from .constants import CMD_STOP
 from .constants import TAG_CMD
-from .output_helpers import note_print
 from .stoppable_thread import StoppableThread
 
 
@@ -79,7 +79,7 @@ class ConsoleReader(StoppableThread):
                         elif cmd == CMD_STOP:
                             self.cmd_stop_count += 1
                             if self.cmd_stop_count >= 2:
-                                note_print('Multiple stop commands received, forcing quit monitor')
+                                log.print('Multiple stop commands received, forcing quit monitor', style='yellow')
                                 # event_queue normally contains data from the chip. Moving the CMD_STOP to the cmd_queue
                                 # should make the monitor quit sooner, as this takes priority and we assume the queue is
                                 # usually empty. This is not a proper force quit, as there might be some data in the
@@ -87,7 +87,7 @@ class ConsoleReader(StoppableThread):
                                 self.cmd_queue.put(ret)
                             else:
                                 if self.event_queue.qsize() > 100:
-                                    note_print(
+                                    log.note(
                                         'IDF Monitor will decode all received data and close. '
                                         'If you want to stop the monitor immediately, press exit key again.'
                                     )

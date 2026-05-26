@@ -20,8 +20,7 @@ import os
 import shlex
 import subprocess
 
-from .output_helpers import note_print
-from .output_helpers import warning_print
+from esp_pylib.logger import log
 
 # Prefix used in log lines to indicate an executable monitor command
 MONITOR_EXECUTE_PREFIX = 'IDF_MONITOR_EXECUTE_'
@@ -105,13 +104,13 @@ class SecureMonitorCommandExecutor:
 
         template = self._allowed_cmds.get(cmd_type)
         if template is None:  # Unknown cmd type
-            warning_print(f'Ignoring unknown monitor command type: "IDF_MONITOR_EXECUTE_{cmd_type}"')
+            log.warn(f'Ignoring unknown monitor command type: "IDF_MONITOR_EXECUTE_{cmd_type}"')
             return
 
         if '{}' in template:
             cmd_args = cmd_args.strip()
             if not cmd_args:
-                warning_print(f'Ignoring monitor command: no arguments provided for command "{cmd_type}": "{template}"')
+                log.warn(f'Ignoring monitor command: no arguments provided for command "{cmd_type}": "{template}"')
                 return
             formatted = template.format(cmd_args)
         else:
@@ -119,12 +118,12 @@ class SecureMonitorCommandExecutor:
 
         cmd_argv = shlex.split(formatted)  # Convert to argv list
 
-        note_print(f'Executing monitor command: {" ".join(cmd_argv)}')
+        log.note(f'Executing monitor command: {" ".join(cmd_argv)}')
 
         try:
             output = subprocess.check_output(cmd_argv, stderr=subprocess.STDOUT, env=os.environ, shell=False)
             self._logger.print(output)
         except subprocess.CalledProcessError as e:
-            warning_print(f'Command failed: {e}\n{e.output.decode(errors="ignore")}')
+            log.warn(f'Command failed: {e}\n{e.output.decode(errors="ignore")}')
         except OSError as e:
-            warning_print(f'Failed to execute command: {e}')
+            log.warn(f'Failed to execute command: {e}')

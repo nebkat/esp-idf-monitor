@@ -5,7 +5,9 @@ import queue  # noqa: F401
 import textwrap
 from typing import Any  # noqa: F401
 from typing import Optional  # noqa: F401
+from typing import Tuple  # noqa: F401
 
+from esp_pylib.logger import log
 from serial.tools import miniterm
 
 from esp_idf_monitor import __version__
@@ -33,9 +35,6 @@ from .key_config import SKIP_MENU_KEY
 from .key_config import TOGGLE_LOG_KEY
 from .key_config import TOGGLE_OUTPUT_KEY
 from .key_config import TOGGLE_TIMESTAMPS_KEY
-from .output_helpers import COMMON_PREFIX
-from .output_helpers import error_print
-from .output_helpers import red_print
 
 key_description = miniterm.key_description
 
@@ -44,8 +43,8 @@ def prompt_next_action(reason, console, console_parser, event_queue, cmd_queue):
     # type: (str, miniterm.Console, ConsoleParser, queue.Queue, queue.Queue) -> None
     console.setup()  # set up console to trap input characters
     try:
-        red_print(f'{COMMON_PREFIX} {reason}')
-        red_print(console_parser.get_next_action_text())
+        log.print(reason, style='red bold')
+        log.print(console_parser.get_next_action_text(), style='red bold')
 
         k = MENU_KEY  # ignore CTRL-T here, so people can muscle-memory Ctrl-T Ctrl-F, etc.
         while k == MENU_KEY:
@@ -86,11 +85,11 @@ class ConsoleParser:
         return ret
 
     def _handle_menu_key(self, c):  # type: (str) -> Optional[tuple]
-        ret = None  # type: Optional[tuple[int, Any[str, int]]]
+        ret = None  # type: Optional[Tuple[int, Any[str, int]]]
         if c in [EXIT_KEY, MENU_KEY]:  # send verbatim
             ret = (TAG_KEY, c)
         elif c in [CTRL_H, 'h', 'H', '?']:
-            red_print(self.get_help_text())
+            log.print(self.get_help_text(), style='red bold')
         elif c == CHIP_RESET_KEY:  # Reset device via RTS
             ret = (TAG_CMD, CMD_RESET)
         elif c == RECOMPILE_UPLOAD_KEY:  # Recompile & upload
@@ -111,43 +110,42 @@ class ConsoleParser:
         elif c in [EXIT_MENU_KEY, 'x', 'X']:  # Exiting from within the menu
             ret = (TAG_CMD, CMD_STOP)
         else:
-            error_print(f'Unknown menu character {key_description(c)}')
+            log.err(f'Unknown menu character {key_description(c)}')
 
         self._pressed_menu_key = False
         return ret
 
     def get_help_text(self):  # type: () -> str
         text = f"""\
-            {COMMON_PREFIX} esp_idf_monitor ({__version__}) - ESP-IDF Monitor tool
-            {COMMON_PREFIX} based on miniterm from pySerial
-            {COMMON_PREFIX}
-            {COMMON_PREFIX} {key_description(EXIT_KEY):8} Exit program
-            {COMMON_PREFIX} {key_description(MENU_KEY):8} Menu escape key, followed by:
-            {COMMON_PREFIX} Menu keys:
-            {COMMON_PREFIX}    {key_description(MENU_KEY):14} Send the menu character itself to remote
-            {COMMON_PREFIX}    {key_description(EXIT_KEY):14} Send the exit character itself to remote
-            {COMMON_PREFIX}    {key_description(CHIP_RESET_KEY):14} Reset target board via RTS line
-            {COMMON_PREFIX}    {key_description(RECOMPILE_UPLOAD_KEY):14} Build & flash project
-            {COMMON_PREFIX}    {key_description(RECOMPILE_UPLOAD_APP_KEY) + ' (or A)':14} Build & flash app only
-            {COMMON_PREFIX}    {key_description(TOGGLE_OUTPUT_KEY):14} Toggle output display
-            {COMMON_PREFIX}    {key_description(TOGGLE_LOG_KEY):14} Toggle saving output into file
-            {COMMON_PREFIX}    {key_description(TOGGLE_TIMESTAMPS_KEY) + ' (or I)':14} Toggle printing timestamps
-            {COMMON_PREFIX}    {key_description(CHIP_RESET_BOOTLOADER_KEY):14} Reset target into bootloader via the DTR/RTS lines
-            {COMMON_PREFIX}    {key_description(EXIT_MENU_KEY) + ' (or X)':14} Exit program"""  # noqa: E501
+            esp_idf_monitor ({__version__}) - ESP-IDF Monitor tool
+            based on miniterm from pySerial
+
+            {key_description(EXIT_KEY):8} Exit program
+            {key_description(MENU_KEY):8} Menu escape key, followed by:
+            Menu keys:
+               {key_description(MENU_KEY):14} Send the menu character itself to remote
+               {key_description(EXIT_KEY):14} Send the exit character itself to remote
+               {key_description(CHIP_RESET_KEY):14} Reset target board via RTS line
+               {key_description(RECOMPILE_UPLOAD_KEY):14} Build & flash project
+               {key_description(RECOMPILE_UPLOAD_APP_KEY) + ' (or A)':14} Build & flash app only
+               {key_description(TOGGLE_OUTPUT_KEY):14} Toggle output display
+               {key_description(TOGGLE_LOG_KEY):14} Toggle saving output into file
+               {key_description(TOGGLE_TIMESTAMPS_KEY) + ' (or I)':14} Toggle printing timestamps
+               {key_description(CHIP_RESET_BOOTLOADER_KEY):14} Reset target into bootloader via the DTR/RTS lines
+               {key_description(EXIT_MENU_KEY) + ' (or X)':14} Exit program"""  # noqa: E501
 
         if SKIP_MENU_KEY:
-            text += f"""
-            {COMMON_PREFIX}
-            {COMMON_PREFIX} Using the "skip_menu_key" option from a config file. Commands can be executed without pressing the menu escape key.
+            text += """
+            Using the "skip_menu_key" option from a config file. Commands can be executed without pressing the menu escape key.
             """  # noqa: E501
         return textwrap.dedent(text)
 
     def get_next_action_text(self):  # type: () -> str
         text = f"""\
-            {COMMON_PREFIX} Press {key_description(EXIT_KEY)} to exit monitor.
-            {COMMON_PREFIX} Press {key_description(RECOMPILE_UPLOAD_KEY)} to build & flash project.
-            {COMMON_PREFIX} Press {key_description(RECOMPILE_UPLOAD_APP_KEY)} to build & flash app.
-            {COMMON_PREFIX} Press any other key to resume monitor (resets target).
+            Press {key_description(EXIT_KEY)} to exit monitor.
+            Press {key_description(RECOMPILE_UPLOAD_KEY)} to build & flash project.
+            Press {key_description(RECOMPILE_UPLOAD_APP_KEY)} to build & flash app.
+            Press any other key to resume monitor (resets target).
         """
         return textwrap.dedent(text)
 

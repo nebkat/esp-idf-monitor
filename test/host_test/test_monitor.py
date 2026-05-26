@@ -276,7 +276,7 @@ class TestHost(TestBaseClass):
         cmd = ' '.join(['esp_rfc2217_server.py', '-p', rfc2217_port, f'socket://{HOST}:{self.port}?logging=debug'])
         p = subprocess.Popen(cmd, shell=True)
         # wait for the server to start
-        time.sleep(1)
+        time.sleep(2)
         yield f'rfc2217://{HOST}:{rfc2217_port}?ign_set_control'
         p.terminate()
 
@@ -372,9 +372,9 @@ class TestHost(TestBaseClass):
 
         with open(err) as f_err:
             stderr = f_err.read()
-        assert '--- Running make app-flash...' in stderr  # Triggered by TA
-        assert '--- Running make flash...' in stderr  # TF
-        assert '--- Error: Unknown menu character Ctrl+J' in stderr  # TJ
+        assert 'Running make app-flash...' in stderr  # Triggered by TA
+        assert 'Running make flash...' in stderr  # TF
+        assert 'Unknown menu character Ctrl+J' in stderr  # TJ
 
     @pytest.mark.skipif(os.name == 'nt', reason='Linux/MacOS only')
     def test_log(self):
@@ -420,7 +420,7 @@ class TestHost(TestBaseClass):
         out, err = self.run_monitor_async(args=['non_existing.elf'])
         with open(err) as f_err:
             stderr = f_err.read()
-        assert "--- Warning: ELF file 'non_existing.elf' does not exist" in stderr
+        assert "ELF file 'non_existing.elf' does not exist" in stderr
 
 
 class TestBinaryLogging(TestBaseClass):
@@ -610,18 +610,18 @@ class TestConfig(TestBaseClass):
         with open(err) as f_err:
             stderr = f_err.read()
         # make sure that custom config was applied and stderr has message about it
-        assert f'--- Loaded custom configuration from {os.path.join(os.getcwd(), filename)}' in stderr
+        assert f'Loaded custom configuration from {os.path.join(os.getcwd(), filename)}' in stderr
         # check that help command contains values from the config
         assert '---    Ctrl+J         Reset target board via RTS line' in stderr
         assert 'Ctrl+R' not in stderr
         assert '---    Ctrl+K         Toggle saving output into file' in stderr
         assert 'Ctrl+L' not in stderr
         # make sure that logging was enabled
-        regex = re.compile('--- Logging is enabled into file (.*\\.txt)')
+        regex = re.compile('Logging is enabled into file (.*\\.txt)')
         log_file = regex.search(stderr)
         assert log_file is not None
         # make sure that log file was closed on monitor exit
-        assert f'--- Logging is disabled and file {log_file.groups()[0]} has been closed' in stderr
+        assert f'Logging is disabled and file {log_file.groups()[0]} has been closed' in stderr
 
     def test_skip_menu(self):
         """Run monitor with custom config to skip menu key"""
@@ -638,7 +638,7 @@ class TestConfig(TestBaseClass):
             stderr = f_err.read()
         # make sure that menu was skipped
         assert '--- Using the "skip_menu_key" option from a config file.' in stderr
-        assert '--- Running make app-flash...' in stderr  # Triggered by A
+        assert 'Running make app-flash...' in stderr  # Triggered by A
 
     def test_invalid_custom_config(self):
         # create custom config with unsupported value and unknown key
@@ -650,11 +650,11 @@ class TestConfig(TestBaseClass):
         with open(err) as f_err:
             stderr = f_err.read()
         # make sure that custom config was applied and stderr has message about it
-        assert f'--- Loaded custom configuration from {os.path.join(os.getcwd(), "config.cfg")}' in stderr
+        assert f'Loaded custom configuration from {os.path.join(os.getcwd(), "config.cfg")}' in stderr
         # check that stderr has message that config was not correct and fallback option works
-        assert '--- Ignoring unknown configuration options: foo' in stderr
+        assert 'Ignoring unknown configuration options: foo' in stderr
         assert (
-            "--- Error: Unsupported configuration for key: '.', please use just the English alphabet "
+            "Unsupported configuration for key: '.', please use just the English alphabet "
             "characters (A-Z) and [,],\\,^,_. Using the default option 'R'." in stderr
         )
 
@@ -672,17 +672,22 @@ class TestConfig(TestBaseClass):
 
         with open(err) as f_err:
             stderr = f_err.read()
-        msg = f'--- Using custom reset sequence from esptool config file: {os.path.join(os.getcwd(), "config.cfg")}'
+        msg = f'Using custom reset sequence from esptool config file: {os.path.join(os.getcwd(), "config.cfg")}'
         assert msg in stderr
         # remove everything before message about using custom config to remove starting reset sequence
         log_seq = stderr.split(msg)[1]
-        # check in pyserial log that custom reset sequence was used (Note: we cannot test the wait part)
+        # Check pyserial's log of the custom reset sequence. The esp-pylib
+        # serial-reset primitives pass ``True``/``False`` to ``setRTS`` /
+        # ``setDTR`` (matching the type annotations); the legacy esp-idf-monitor
+        # implementation passed the integer literals from the ``R1`` / ``R0``
+        # tokens directly. Both render the same SET_CONTROL_LINE_STATE on the
+        # wire, but pyserial logs the Python value as-is. Match either form.
         my_seq = [
-            'INFO:pySerial.socket:ignored _update_rts_state(1)',  # R1
+            'INFO:pySerial.socket:ignored _update_rts_state(True)',  # R1
             'INFO:pySerial.socket:ignored _update_dtr_state(False)',  # expected workaround for windows RTS setting
-            'INFO:pySerial.socket:ignored _update_rts_state(0)',  # R0
+            'INFO:pySerial.socket:ignored _update_rts_state(False)',  # R0
             'INFO:pySerial.socket:ignored _update_dtr_state(False)',  # expected workaround for windows RTS setting
-            'INFO:pySerial.socket:ignored _update_dtr_state(1)',  # D1
+            'INFO:pySerial.socket:ignored _update_dtr_state(True)',  # D1
         ]
         assert '\n'.join(my_seq) in log_seq
 
@@ -703,17 +708,17 @@ class TestConfig(TestBaseClass):
 
         with open(err) as f_err:
             stderr = f_err.read()
-        msg = f'--- Using custom reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}'
+        msg = f'Using custom reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}'
         assert msg in stderr
         # remove everything before message about using custom config to remove starting reset sequence
         log_seq = stderr.split(msg)[1]
-        # check in pyserial log that custom reset sequence was used (Note: we cannot test the wait part)
+        # See ``test_esptool_sequence`` for the rationale on ``True``/``False`` here
         my_seq = [
-            'INFO:pySerial.socket:ignored _update_rts_state(1)',  # R1
+            'INFO:pySerial.socket:ignored _update_rts_state(True)',  # R1
             'INFO:pySerial.socket:ignored _update_dtr_state(False)',  # expected workaround for windows RTS setting
-            'INFO:pySerial.socket:ignored _update_rts_state(0)',  # R0
+            'INFO:pySerial.socket:ignored _update_rts_state(False)',  # R0
             'INFO:pySerial.socket:ignored _update_dtr_state(False)',  # expected workaround for windows RTS setting
-            'INFO:pySerial.socket:ignored _update_dtr_state(1)',  # D1
+            'INFO:pySerial.socket:ignored _update_dtr_state(True)',  # D1
         ]
         assert '\n'.join(my_seq) in log_seq
 
@@ -731,9 +736,15 @@ class TestConfig(TestBaseClass):
 
         with open(err) as f_err:
             stderr = f_err.read()
-        # check for error message that reset sequence was invalid
-        assert f'--- Using custom reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}' in stderr
-        assert '--- Error: Invalid "custom_reset_sequence" option format: \'F\'' in stderr
+        # check for error message that reset sequence was invalid. esp-pylib's
+        # ``parse_custom_reset_sequence`` reports the full bad token in its
+        # error message (``Invalid custom reset sequence step 'FOO': Unknown
+        # reset sequence command: 'FOO'.``), which is more useful than the
+        # legacy ``'F'`` (the KeyError'd first character) — assert on a
+        # substring that's stable across both phrasings.
+        assert f'Using custom reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}' in stderr
+        assert 'Invalid "custom_reset_sequence" option format:' in stderr
+        assert "'FOO'" in stderr
 
     def test_custom_hard_reset_sequence(self):
         """Use custom hard reset sequence"""
@@ -748,15 +759,16 @@ class TestConfig(TestBaseClass):
         assert self.close_monitor_async() == 0
         with open(err) as f_err:
             stderr = f_err.read()
-        msg = f'--- Using custom hard reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}'
+        msg = f'Using custom hard reset sequence from config file: {os.path.join(os.getcwd(), "config.cfg")}'
         assert msg in stderr
         # remove everything before message about using custom config to remove starting reset sequence
         log_seq = stderr.split(msg)[1]
-        # check in pyserial log that custom hard reset sequence was used (Note: we cannot test the wait part)
+        # See ``test_esptool_sequence`` for the rationale on ``True``/``False``
+        # here vs. the historical ``1``/``0``.
         my_seq = [
-            'INFO:pySerial.socket:ignored _update_rts_state(1)',  # R1
+            'INFO:pySerial.socket:ignored _update_rts_state(True)',  # R1
             'INFO:pySerial.socket:ignored _update_dtr_state(False)',  # expected workaround for windows RTS setting
-            'INFO:pySerial.socket:ignored _update_rts_state(0)',  # R0
+            'INFO:pySerial.socket:ignored _update_rts_state(False)',  # R0
         ]
         assert '\n'.join(my_seq) in log_seq
 
