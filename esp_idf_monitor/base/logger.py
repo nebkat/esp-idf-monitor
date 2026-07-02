@@ -5,17 +5,18 @@ import datetime
 import os
 from typing import AnyStr  # noqa: F401
 from typing import BinaryIO  # noqa: F401
-from typing import Callable  # noqa: F401
 from typing import List  # noqa: F401
 from typing import Optional  # noqa: F401
 
 from esp_idf_panic_decoder import PcAddressDecoder
 from esp_pylib.logger import log
 from rich.markup import escape
+from rich.text import Text
 from serial.tools import miniterm
 
 from esp_idf_monitor.base.key_config import MENU_KEY
 from esp_idf_monitor.base.key_config import TOGGLE_OUTPUT_KEY
+from esp_idf_monitor.base.monitor_log import add_common_prefix
 
 key_description = miniterm.key_description
 
@@ -103,15 +104,18 @@ class Logger:
             finally:
                 self._log_file = None
 
-    def print(self, string, console_printer=None):
-        # type: (AnyStr, Optional[Callable]) -> None
-        if console_printer is None:
-            console_printer = self.console.write_bytes
-
+    def print(self, string):
+        # type: (AnyStr) -> None
+        # ``str`` — monitor-originated stderr (Rich markup, ``--- `` prefix,
+        # log-file rules). ``bytes`` — chip / console serial output.
         if isinstance(string, str):
+            console_printer = log.print
             new_line_char = '\n'
+            if string:
+                string = add_common_prefix(string)
         else:
             new_line_char = b'\n'  # type: ignore
+            console_printer = self.console.write_bytes
 
         if string and self.timestamps and (self._output_enabled or self._log_file):
             t = datetime.datetime.now().strftime(self.timestamp_format)
@@ -139,11 +143,25 @@ class Logger:
         elif string:
             self._start_of_line = string.endswith(new_line_char)
 
+        if isinstance(string, str) and (self._output_enabled or self._log_file):
+            # log.print() (Rich) always terminates the message with a newline, so
+            # the next output starts on a fresh line. The timestamp bookkeeping
+            # above only sees the string we pass in (without that implicit
+            # newline), so force the start-of-line state to match what actually
+            # reaches the terminal; otherwise the following line loses its timestamp.
+            self._start_of_line = True
+
         if self._output_enabled:
             console_printer(string)
         if self._log_file:
             try:
                 if isinstance(string, str):
+                    # Remove any Rich markup so it doesn't get written to the log file
+                    string = str(Text.from_markup(string))
+                    # Mirror the trailing newline that log.print() (Rich) emits so
+                    # the log file matches the terminal and the following output is
+                    # not concatenated onto the same line.
+                    string += new_line_char
                     string = string.encode()  # type: ignore
                 self._log_file.write(string)  # type: ignore
             except Exception as e:
@@ -154,8 +172,9 @@ class Logger:
 
     def output_toggle(self):  # type: () -> None
         self.output_enabled = not self.output_enabled
+        log.print('')
         log.note(
-            f'\nToggle output display: {self.output_enabled}, '
+            f'Toggle output display: {self.output_enabled}, '
             f'Type {key_description(MENU_KEY)} {key_description(TOGGLE_OUTPUT_KEY)} '
             'to show/disable output again.',
         )
@@ -179,7 +198,7 @@ class Logger:
             if not trace:
                 # No trace entries (this should not happen, but just in case, red)
                 trace_line += '[bold red](unknown)[/bold red]'
-                self.print(trace_line, console_printer=log.print)
+                self.print(trace_line)
                 continue
 
             # For each source location in the trace
@@ -196,4 +215,4 @@ class Logger:
                 else:
                     # Print the file path and line number (green:red)
                     trace_line += f' at [green]{escape(entry.path)}[/green]:[bold red]{entry.line}[/bold red]'
-            self.print(trace_line, console_printer=log.print)
+            self.print(trace_line)

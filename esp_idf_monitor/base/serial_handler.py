@@ -299,7 +299,7 @@ class SerialHandler:
 
         if self._reading_panic == PANIC_IDLE and re.search(PANIC_START, line.decode('ascii', errors='ignore')):
             self._reading_panic = PANIC_READING
-            log.print('Stack dump detected', style='yellow')
+            self.logger.print('[yellow]Stack dump detected[/yellow]')
 
         if self._reading_panic == PANIC_READING and PANIC_STACK_DUMP in line:
             self._reading_panic = PANIC_READING_STACK
@@ -314,11 +314,13 @@ class SerialHandler:
             try:
                 out = self.panic_handler.process_panic_output(self._panic_buffer)
                 if out:
-                    log.print('')
-                    log.print('Backtrace:\n\n', style='yellow')
+                    self.logger.print('[yellow]Backtrace:[/yellow]\n\n')
                     self.logger.print(out)
             except subprocess.CalledProcessError as e:
-                log.warn(f'Failed to run gdb_panic_server.py script: {e}\n{e.output}\n\n')
+                output = e.output
+                if isinstance(output, bytes):
+                    output = output.decode('utf-8', errors='replace')
+                log.warn(f'Failed to run gdb_panic_server.py script: {e}\n{output}\n\n')
                 # in case of error, print the rest of panic buffer that wasn't logged yet
                 # we stopped logging with PANIC_STACK_DUMP and re-enabled logging with PANIC_END
                 l_idx = self._panic_buffer.find(PANIC_STACK_DUMP)

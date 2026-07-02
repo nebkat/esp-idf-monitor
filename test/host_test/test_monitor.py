@@ -19,8 +19,10 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from unittest.mock import patch
 
 import pytest
+from esp_pylib.logger import log
 
 from esp_idf_monitor.base.binlog import BinaryLog
 from esp_idf_monitor.base.command_reader import CommandReader
@@ -1024,6 +1026,69 @@ class TestLogger:
         assert logger.pc_address_buffer == b''
         logger.pc_address_buffer = b'suffix'
         assert logger.pc_address_buffer == b''
+
+    def test_timestamps_unaffected_by_monitor_messages(self):
+        """Monitor stderr lines must not break timestamp prefixing on serial output."""
+        serial_output = []  # type: List[bytes]
+
+        class _CapturingConsole:
+            def write_bytes(self, data):  # type: (bytes) -> None
+                serial_output.append(data)
+
+        logger = Logger(
+            elf_files=['/nonexistent/example.elf'],
+            console=_CapturingConsole(),
+            timestamps=True,
+            timestamp_format='%Y-%m-%d %H:%M:%S',
+            enable_address_decoding=False,
+            toolchain_prefix='riscv32-esp-elf-',
+        )
+        ts_pattern = re.compile(rb'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ')
+
+        with patch.object(log, 'print'):
+            logger.print(b'abort() was called at PC 0x42007bfd on core 0\n')
+            logger.print('0x42007bfd: app_main at hello_world_main.c:52')
+            logger.print('[yellow]Stack dump detected[/yellow]\n')
+            logger.print(b'Core  0 register dump:\n')
+            logger.print(b'MEPC    : 0x40805414  RA      : 0x408053d2  SP      : 0x4080d690  GP      : 0x408091a4\n')
+            logger.print('0x40805414: panic_abort at panic.c:496')
+            logger.print('0x408053d2: esp_vApplicationTickHook at freertos_hooks.c:31')
+            logger.print(b'TP      : 0x4080d780  T0      : 0x37363534\n')
+
+        assert len(serial_output) == 4
+        for chunk in serial_output:
+            assert ts_pattern.match(chunk), f'missing timestamp on serial output: {chunk!r}'
+
+    def test_monitor_messages_written_to_log_file(self, tmp_path, monkeypatch):
+        """Monitor stderr strings must land in the log file with Rich markup stripped."""
+        monkeypatch.chdir(tmp_path)
+
+        class _CapturingConsole:
+            def write_bytes(self, data: bytes) -> None:
+                pass
+
+        logger = Logger(
+            elf_files=['example.elf'],
+            console=_CapturingConsole(),
+            timestamps=False,
+            timestamp_format='',
+            enable_address_decoding=False,
+            toolchain_prefix='riscv32-esp-elf-',
+        )
+        logger.start_logging()
+        try:
+            with patch.object(log, 'print'):
+                logger.print('[yellow]Stack dump detected[/yellow]')
+                logger.print(b'Core  0 register dump:\n')
+        finally:
+            logger.stop_logging()
+
+        log_files = list(tmp_path.glob('log.example.*.txt'))
+        assert len(log_files) == 1
+        content = log_files[0].read_bytes()
+        assert b'Stack dump detected' in content
+        assert b'[yellow]' not in content
+        assert b'Core  0 register dump:' in content
 
 
 class TestCommandReader:
