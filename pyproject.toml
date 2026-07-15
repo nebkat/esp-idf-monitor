@@ -113,6 +113,11 @@ source = ['./esp_idf_monitor/', '*/esp_idf_monitor/']
 write-changes = true
 skip = 'test/host_test/inputs/*'
 
+[tool.pytest.ini_options]
+# idf-ci pre-imports test modules without package context, which breaks
+# ``from .conftest import ...`` in host tests.
+addopts = ['-p', 'no:idf-ci']
+
 [tool.ruff]
 line-length = 120
 
