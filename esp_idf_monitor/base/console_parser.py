@@ -5,6 +5,7 @@ import queue  # noqa: F401
 import textwrap
 from typing import Any  # noqa: F401
 from typing import Optional  # noqa: F401
+from typing import Tuple  # noqa: F401
 
 from serial.tools import miniterm
 
@@ -86,7 +87,7 @@ class ConsoleParser:
         return ret
 
     def _handle_menu_key(self, c):  # type: (str) -> Optional[tuple]
-        ret = None  # type: Optional[tuple[int, Any[str, int]]]
+        ret = None  # type: Optional[Tuple[int, Any[str, int]]]
         if c in [EXIT_KEY, MENU_KEY]:  # send verbatim
             ret = (TAG_KEY, c)
         elif c in [CTRL_H, 'h', 'H', '?']:

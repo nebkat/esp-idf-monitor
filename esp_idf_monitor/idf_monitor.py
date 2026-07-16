@@ -333,7 +333,10 @@ class Monitor:
                 data, self.target, self.run_make, self.console_reader, self.serial_reader
             )
         elif event_tag == TAG_KEY:
-            self.serial_write(codecs.encode(data))
+            # stdin may contain invalid UTF-8; Python exposes those as
+            # surrogateescape code points (e.g. b'\xe3' -> '\udce3'). Encode
+            # with the same error handler so the original byte is preserved.
+            self.serial_write(codecs.encode(data, 'utf-8', 'surrogateescape'))
         elif event_tag == TAG_SERIAL:
             self.serial_handler.handle_serial_input(
                 data,
