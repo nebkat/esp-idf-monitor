@@ -43,7 +43,8 @@ def _default_port_help() -> str:
 @click.option(
     '--no-reset',
     is_flag=True,
-    default=bool(os.getenv('ESP_IDF_MONITOR_NO_RESET', not DEFAULT_TARGET_RESET)),
+    envvar='ESP_IDF_MONITOR_NO_RESET',
+    default=not DEFAULT_TARGET_RESET,
     help='Do not reset the chip on monitor startup',
 )
 @click.option(
