@@ -11,8 +11,7 @@ from typing import Tuple
 from typing import Union
 
 from elftools.elf.elffile import ELFFile
-
-from .output_helpers import warning_print
+from esp_pylib.logger import log
 
 
 class Control:
@@ -199,7 +198,7 @@ class Message:
 class BinaryLog:
     def __init__(self, elf_paths: list) -> None:
         if elf_paths is None or len(elf_paths) == 0:
-            warning_print('No ELF files found. Please provide the ELF file paths, required for binary log decoding.')
+            log.warn('No ELF files found. Please provide the ELF file paths, required for binary log decoding.')
         self.elf_paths = elf_paths
         self.debug = False
 

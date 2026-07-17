@@ -1,99 +1,253 @@
-# SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
+"""WebSocket client used to advertise debug events to an IDE.
+
+Dispatches between two backends:
+
+* `_PylibBackend` — preferred. Uses `esp_pylib.ws` for the
+  underlying WebSocket I/O. Available wherever ``esp-pylib[ide]`` is
+  installed (Python >= 3.8).
+* `_LegacyBackend` — fallback. Uses the ``websocket-client``
+  package and is kept for Python 3.7, where ``esp-pylib[ide]`` is not
+  available because its ``websockets`` dependency requires Python >= 3.8.
+
+The public `WebSocketClient` keeps its historical
+``send(payload_dict)`` / ``wait(expect_iterable)`` / ``close()`` API so
+callers in `esp_idf_monitor.base.gdbhelper` and
+`esp_idf_monitor.base.coredump` need no changes. Both backends emit
+the same ``WebSocket sent: ...`` / ``WebSocket received: ...`` log lines
+the IDE integration target test (``pytest_monitor_ide_integration.py``)
+greps for.
+
+Wire format (both backends): ``{"type": "event", "event": "<name>", ...}``.
+The pylib backend produces this via `esp_pylib.ws.send_event`; the
+legacy backend serializes the dict directly so callers should already be
+passing an envelope-ready payload (which the monitor's gdbhelper /
+coredump call sites do).
+"""
+
+from __future__ import annotations
 
 import json
+import sys
 import time
+from typing import Any
+from typing import Iterable
 
-from .output_helpers import error_print
-from .output_helpers import note_print
+from esp_pylib.logger import log
 
-try:
-    import websocket
-except ImportError:
-    # This is needed for IDE integration only.
-    pass
+# Imported as a module so tests can swap ``esp_pylib.ws`` in ``sys.modules``
+# and re-import. ``set_ws_url`` membership is the gate for picking the pylib
+# backend — older esp-pylib installs (or wholly missing installs) will not
+# expose it, and the legacy backend takes over.
+try:  # pragma: no cover - exercised via reload in tests
+    from esp_pylib import ws as _pylib_ws  # type: ignore[import]
+except ImportError:  # pragma: no cover
+    _pylib_ws = None  # type: ignore[assignment]
+
+# Imported the same way for symmetry; tests force both to ``None`` to
+# exercise the "no backend at all" error path.
+try:  # pragma: no cover
+    import websocket  # type: ignore[import]
+except ImportError:  # pragma: no cover
+    websocket = None  # type: ignore[assignment]
 
 
-class WebSocketClient:
+def _pylib_available() -> bool:
+    """Return ``True`` when the pylib backend can be constructed.
+
+    Gated on three things: the import succeeded, the IDE-side surface
+    (``set_ws_url``) is present, and Python is >= 3.8. The Python check
+    is duplicated because the websockets dependency does not install on
+    3.7 even when ``esp-pylib`` itself does; an install with only the
+    base extras gives us ``set_ws_url`` but no working transport, which
+    would surface at connect time as a confusing
+    ``"esp-pylib[ide]"`` FatalError instead of falling through cleanly.
     """
-    WebSocket client used to advertise debug events to WebSocket server by sending and receiving JSON-serialized
-    dictionaries.
+    if _pylib_ws is None:
+        return False
+    if not hasattr(_pylib_ws, 'set_ws_url'):
+        return False
+    if sys.version_info < (3, 8):
+        return False
+    return True
 
-    Advertisement of debug event:
-    {'event': 'gdb_stub', 'port': '/dev/ttyUSB1', 'prog': 'build/elf_file'} for GDB Stub, or
-    {'event': 'coredump', 'file': '/tmp/xy', 'prog': 'build/elf_file'} for coredump,
-    where 'port' is the port for the connected device, 'prog' is the full path to the ELF file and 'file' is the
-    generated coredump file.
 
-    Expected end of external debugging:
-    {'event': 'debug_finished'}
+class _PylibBackend:
+    """Backend that delegates to `esp_pylib.ws`."""
+
+    def __init__(self, url: str) -> None:
+        # ``set_ws_url`` pins the URL for the duration of the session;
+        # ``ensure_connected`` opens the socket immediately and raises a
+        # descriptive ``FatalError`` if the URL is unset, ``websockets``
+        # is missing, or the retries are exhausted. We propagate that
+        # exception untouched: it already explains what went wrong, and
+        # a generic wrapper would discard the diagnostic detail.
+        assert _pylib_ws is not None  # _pylib_available() gated construction
+        _pylib_ws.set_ws_url(url)
+        _pylib_ws.ensure_connected()
+
+    def send(self, payload_dict: dict[str, Any]) -> None:
+        """Send an event payload.
+
+        The dict is splatted into `esp_pylib.ws.send_event` so
+        Python's call binding routes ``payload_dict['event']`` to the
+        named ``event`` parameter and the rest into ``**kwargs``. A
+        payload missing ``event`` therefore raises ``TypeError``
+        naturally — a clearer signal of the static call-site bug than a
+        re-wrapped exception would be.
+        """
+        assert _pylib_ws is not None
+        _pylib_ws.send_event(**payload_dict)
+        # Emit the "WebSocket sent: ..." line the IDE integration target
+        # test greps for. The payload dict is logged as-is, not the
+        # envelope produced by ``send_event``, so the output matches what
+        # the call site passed in.
+        log.note(f'WebSocket sent: {payload_dict}')
+
+    def wait(self, expect_iterable: Iterable[tuple[str, Any]]) -> None:
+        """Wait for an event matching ``expect_iterable``.
+
+        Current callers only ever pass a single-tuple iterable like
+        ``[('event', 'debug_finished')]``; a multi-key expectation
+        signals a protocol change that needs explicit modelling rather
+        than silent best-effort matching. We raise
+        `esp_pylib.errors.FatalError` to make that promotion an
+        observable build failure.
+        """
+        # Materialise once so we can both validate length and dispatch.
+        expectations = list(expect_iterable)
+        assert _pylib_ws is not None
+        # Late import: in failure cases we still want a clear "esp-pylib
+        # not installed" error from ``_pylib_available()`` before this
+        # code path runs.
+        from esp_pylib.errors import FatalError
+
+        if len(expectations) != 1 or expectations[0][0] != 'event':
+            raise FatalError(f'Unsupported WebSocket wait expectation: {expectations!r}')
+        event_name = expectations[0][1]
+        result = _pylib_ws.wait_for_event(event_name)
+        log.note(f'WebSocket received: {result}')
+
+    def close(self) -> None:
+        assert _pylib_ws is not None
+        _pylib_ws.close()
+
+
+class _LegacyBackend:
+    """Fallback backend using the ``websocket-client`` package.
+
+    Kept only for Python 3.7 (and any environment where esp-pylib's
+    ``[ide]`` extra didn't install). The behaviour is the same as the
+    pre-migration implementation, just lifted into its own class.
     """
 
     RETRIES = 3
     CONNECTION_RETRY_DELAY = 1
 
-    def __init__(self, url):  # type: (str) -> None
+    def __init__(self, url: str) -> None:
+        # Fail fast when the websocket-client package is unavailable.
+        # ``websocket is None`` means the top-level import did not
+        # succeed (either the package is not installed or tests have
+        # explicitly stubbed it out). Reporting that condition before
+        # the connect loop keeps the error message stable for callers
+        # / tests that grep for ``"websocket_client"`` and avoids
+        # surfacing a misleading "Cannot connect" after three retry
+        # attempts against a no-op stub.
+        if websocket is None:
+            raise RuntimeError('Please install the websocket_client package for IDE integration!')
         self.url = url
         self._connect()
 
-    def _connect(self):  # type: () -> None
-        """
-        Connect to WebSocket server at url
-        """
-
+    def _connect(self) -> None:
         self.close()
         for _ in range(self.RETRIES):
             try:
                 self.ws = websocket.create_connection(self.url)
-                break  # success
-            except NameError:
-                raise RuntimeError('Please install the websocket_client package for IDE integration!')
-            except Exception as e:  # noqa
-                error_print('WebSocket connection error: {e}')
+                break
+            except Exception as e:
+                log.err(f'WebSocket connection error: {e}')
             time.sleep(self.CONNECTION_RETRY_DELAY)
         else:
             raise RuntimeError('Cannot connect to WebSocket server')
 
-    def close(self):  # type: () -> None
+    def close(self) -> None:
         try:
             self.ws.close()
         except AttributeError:
-            # Not yet connected
             pass
-        except Exception as e:  # noqa
-            error_print('WebSocket close error: {e}')
+        except Exception as e:
+            log.err(f'WebSocket close error: {e}')
 
-    def send(self, payload_dict):  # type: (dict) -> None
-        """
-        Serialize payload_dict in JSON format and send it to the server
-        """
+    def send(self, payload_dict: dict[str, Any]) -> None:
         for _ in range(self.RETRIES):
             try:
                 self.ws.send(json.dumps(payload_dict))
-                note_print(f'WebSocket sent: {payload_dict}')
-                break
-            except Exception as e:  # noqa
-                error_print(f'WebSocket send error: {e}')
+                log.note(f'WebSocket sent: {payload_dict}')
+                return
+            except Exception as e:
+                log.err(f'WebSocket send error: {e}')
                 self._connect()
-        else:
-            raise RuntimeError('Cannot send to WebSocket server')
+        raise RuntimeError('Cannot send to WebSocket server')
 
-    def wait(self, expect_iterable):  # type: (list) -> None
-        """
-        Wait until a dictionary in JSON format is received from the server with all (key, value) tuples from
-        expect_iterable.
-        """
+    def wait(self, expect_iterable: Iterable[tuple[str, Any]]) -> None:
+        expectations = list(expect_iterable)
         for _ in range(self.RETRIES):
             try:
                 r = self.ws.recv()
             except Exception as e:
-                error_print(f'WebSocket receive error: {e}')
+                log.err(f'WebSocket receive error: {e}')
                 self._connect()
                 continue
             obj = json.loads(r)
-            if all([k in obj and obj[k] == v for k, v in expect_iterable]):
-                note_print(f'WebSocket received: {obj}')
-                break
-            error_print(f'WebSocket expected: {dict(expect_iterable)}, received: {obj}')
+            if all(k in obj and obj[k] == v for k, v in expectations):
+                log.note(f'WebSocket received: {obj}')
+                return
+            log.err(f'WebSocket expected: {dict(expectations)}, received: {obj}')
+        raise RuntimeError('Cannot receive from WebSocket server')
+
+
+class WebSocketClient:
+    """Public WebSocket client used by the gdb / coredump handlers.
+
+    Dispatches to a pylib- or websocket-client-backed implementation
+    based on what's available at construction time. Both backends share
+    the same public API (``send``, ``wait``, ``close``) so call sites
+    don't need to know which is active.
+
+    Advertisement payloads:
+
+    * ``{'event': 'gdb_stub', 'port': '/dev/ttyUSB1', 'prog': 'build/elf'}``
+    * ``{'event': 'coredump', 'file': '/tmp/xy', 'prog': 'build/elf'}``
+
+    Expected close-out from the IDE: ``{'event': 'debug_finished'}``.
+    """
+
+    _impl: Any  # _PylibBackend or _LegacyBackend; lazy union annotation
+
+    def __init__(self, url: str) -> None:
+        if _pylib_available():
+            self._impl = _PylibBackend(url)
         else:
-            raise RuntimeError('Cannot receive from WebSocket server')
+            # Surfacing the websocket-client requirement up front matches
+            # the legacy contract (callers used to ``except RuntimeError``
+            # for both "missing dependency" and "cannot connect").
+            self._impl = _LegacyBackend(url)
+
+    def send(self, payload_dict: dict[str, Any]) -> None:
+        self._impl.send(payload_dict)
+
+    def wait(self, expect_iterable: Iterable[tuple[str, Any]]) -> None:
+        self._impl.wait(expect_iterable)
+
+    def close(self) -> None:
+        self._impl.close()
+
+    # Optional helper used by ``idf_monitor.main()`` to control the
+    # pylib-side URL cache on exit. No-op for the legacy backend, which
+    # has no global URL state.
+    def shutdown(self) -> None:  # pragma: no cover - thin compatibility shim
+        try:
+            self.close()
+        except Exception:
+            pass

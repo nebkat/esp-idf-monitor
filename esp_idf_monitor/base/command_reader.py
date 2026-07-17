@@ -9,6 +9,9 @@ import threading
 import time
 from typing import Optional  # noqa: F401
 
+from esp_pylib.logger import log
+from rich.markup import escape
+
 from .console_parser import ConsoleParser  # noqa: F401
 from .constants import CMD_APP_FLASH
 from .constants import CMD_ENTER_BOOT
@@ -20,8 +23,6 @@ from .constants import CMD_TOGGLE_LOGGING
 from .constants import CMD_TOGGLE_TIMESTAMPS
 from .constants import TAG_CMD
 from .constants import TAG_KEY
-from .output_helpers import error_print
-from .output_helpers import note_print
 from .stoppable_thread import StoppableThread
 
 # Interval for checking the alive flag while sleeping or parked
@@ -118,10 +119,10 @@ class CommandReader(StoppableThread):
                     # watching the serial output. The monitor is then stopped
                     # from the outside: Ctrl+C, SIGTERM (docker stop, CI job
                     # timeout) or e.g. the timeout(1) utility.
-                    note_print('No commands on standard input, watching serial output only...')
+                    log.print('No commands on standard input, watching serial output only...', style='yellow')
                     break
                 # EOF after a script: the script has finished, exit the monitor
-                note_print('EOF received on standard input, exiting...')
+                log.print('EOF received on standard input, exiting...', style='yellow')
                 self._push_stop()
                 break
             commands_read = True
@@ -142,7 +143,7 @@ class CommandReader(StoppableThread):
             return True
         # echo every command to stderr, so the progress of the script is
         # visible even when stdout is redirected to a file
-        note_print(f'Command: {line!r}')
+        log.print(f'Command: {line!r}', style='yellow')
         command, _, argument = line.partition(' ')
         command = command.lower()
         if command == 'send':
@@ -152,7 +153,7 @@ class CommandReader(StoppableThread):
             try:
                 duration = float(argument)
             except ValueError:
-                error_print(f'Invalid sleep duration: {argument!r}')
+                log.err(f'Invalid sleep duration: {argument!r}')
                 return True
             self._sleep(duration)
         elif command == 'expect':
@@ -161,7 +162,7 @@ class CommandReader(StoppableThread):
             except re.error as e:
                 # proceeding without the wait could execute the rest of the
                 # script at a wrong moment, better to fail fast
-                error_print(f'Invalid expect pattern {argument!r}: {e}, exiting...')
+                log.err(f'Invalid expect pattern {escape(argument)!r}: {e}, exiting...')
                 self._push_stop()
                 return False
             self._expect(pattern)
@@ -171,7 +172,7 @@ class CommandReader(StoppableThread):
         elif command in self.COMMANDS:
             self.event_queue.put((TAG_CMD, self.COMMANDS[command]))
         else:
-            error_print(f'Unknown command: {line!r}')
+            log.err(f'Unknown command: {line!r}')
         return True
 
     def observe_line(self, line):
@@ -215,7 +216,7 @@ class CommandReader(StoppableThread):
             with self._expect_lock:
                 self._expect_pattern = None
         if self._expect_matched.is_set():
-            note_print(f'Expect pattern {pattern.pattern!r} matched, continuing...')
+            log.print(f'Expect pattern {pattern.pattern!r} matched, continuing...', style='yellow')
 
     def _push_stop(self):
         # type: () -> None

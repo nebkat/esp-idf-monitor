@@ -217,7 +217,7 @@ host_test:
     # setting PYTHONPATH before running activate script on newest IDF will cause an error because of missing coverage
     - export PYTHONPATH="$PYTHONPATH:${TEST_DIR}"
     - cd ${TEST_DIR}
-    - coverage run -m pytest -sv host_test/test_monitor.py
+    - coverage run -m pytest -sv host_test/
 
 windows_host_test:
   stage: host_test
@@ -239,8 +239,8 @@ windows_host_test:
     - pip install -e .[dev,host_test] --prefer-binary
     - *install_custom_tool_powershell
   script:
-    - cd ${TEST_DIR}\host_test
-    - coverage run -m pytest -sv test_monitor.py
+    - cd ${TEST_DIR}
+    - coverage run -m pytest -sv host_test/
 
 
 # Build test jobs for target tests

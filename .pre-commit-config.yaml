@@ -33,6 +33,8 @@ repos:
     rev: v1.8.0  # locked to 1.8.0 to support Python 3.7
     hooks:
       - id: mypy
+        additional_dependencies:
+          - esp-pylib
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.2

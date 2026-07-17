@@ -90,7 +90,7 @@ def test_monitor_ide_integration(
                 '--port',
                 str(dut.serial.port),
                 '--ws',
-                f'ws://{webSocketServer.HOST}:{webSocketServer.port.value}',
+                f'ws://{webSocketServer.HOST}:{webSocketServer.port.value}',  # type: ignore
             ],
         )
     )
@@ -100,12 +100,12 @@ def test_monitor_ide_integration(
         monitor_cmd, logfile=log, timeout=5, encoding='utf-8', codec_errors='ignore'
     ) as p:
         p.expect(re.compile(r'Guru Meditation Error'), timeout=10)
-        p.expect_exact('--- Communicating through WebSocket')
+        p.expect_exact('Communicating through WebSocket')
         # The elements of dictionary can be printed in different order depending on the Python version.
         p.expect(re.compile(r"WebSocket sent: \{.*'event': '" + config + "'"))
-        p.expect_exact('--- Waiting for debug finished event')
+        p.expect_exact('Waiting for debug finished event')
         p.expect(re.compile(r"WebSocket received: \{'event': 'debug_finished'\}"))
-        p.expect_exact('--- Communications through WebSocket is finished')
+        p.expect_exact('Communications through WebSocket is finished')
         # end monitor and wait for proper termination to ensure complete coverage report
         p.sendcontrol(']')
         p.expect_exact(pexpect.EOF)

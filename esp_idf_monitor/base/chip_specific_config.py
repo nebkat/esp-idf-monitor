@@ -11,7 +11,7 @@
 #
 # for more information see the method "handle_commands" in idf_monitor.py
 
-from .constants import MINIMAL_EN_LOW_DELAY
+from esp_pylib.serial_reset import MINIMAL_EN_LOW_DELAY
 
 conf = {
     # the default values were previously hardcoded in idf_monitor.py (taken from esptool.py)

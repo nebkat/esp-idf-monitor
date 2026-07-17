@@ -27,7 +27,7 @@ def test_linux_target(coverage_run: List[str], dut: Dut) -> None:
         # try some unsupported command for linux e.g. resetting the target
         p.sendcontrol('T')
         p.sendcontrol('R')
-        p.expect_exact('--- Warning: Linux target does not support this command')
+        p.expect_exact('Linux target does not support this command')
         # end monitor
         p.sendcontrol(']')
         # read the rest of the input

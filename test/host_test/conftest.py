@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 import os
 
+# Pin terminal width so Rich-based log output does not wrap unpredictably in CI.
+# 160 fits the longest monitor log lines (including the `--- ERROR:` prefix).
+os.environ.setdefault('COLUMNS', '160')
+
 out_dir = ''
 
 

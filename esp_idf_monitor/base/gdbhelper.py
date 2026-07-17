@@ -5,10 +5,8 @@ import subprocess
 from typing import List  # noqa: F401
 from typing import Optional  # noqa: F401
 
-from .logger import Logger  # noqa: F401
-from .output_helpers import error_print
-from .output_helpers import normal_print
-from .output_helpers import note_print
+from esp_pylib.logger import log
+
 from .web_socket_client import WebSocketClient  # noqa: F401
 
 
@@ -41,7 +39,7 @@ class GDBHelper:
 
     def run_gdb(self):
         # type: () -> None
-        normal_print('')
+        log.print('')  # newline
         try:
             cmd = [
                 f'{self.toolchain_prefix}gdb',
@@ -69,7 +67,7 @@ class GDBHelper:
                     pass  # We ignore the Ctrl+C
             self.gdb_exit = True
         except OSError as e:
-            error_print(f'{" ".join(cmd)}: {e}')
+            log.err(f'{" ".join(cmd)}: {e}')
         except KeyboardInterrupt:
             pass  # happens on Windows, maybe other OSes
         finally:
@@ -97,13 +95,13 @@ class GDBHelper:
                 return False
             if chsum == calc_chsum:
                 if self.websocket_client:
-                    note_print('Communicating through WebSocket')
+                    log.note('Communicating through WebSocket')
                     self.websocket_client.send({'event': 'gdb_stub', 'port': self.port, 'prog': self.elf_files[0]})
-                    note_print('Waiting for debug finished event')
+                    log.note('Waiting for debug finished event')
                     self.websocket_client.wait([('event', 'debug_finished')])
-                    note_print('Communications through WebSocket is finished')
+                    log.note('Communications through WebSocket is finished')
                 else:
                     return True
             else:
-                error_print(f'Malformed gdb message... calculated checksum {chsum:02x} received {calc_chsum:02x}')
+                log.err(f'Malformed gdb message... calculated checksum {chsum:02x} received {calc_chsum:02x}')
         return False
