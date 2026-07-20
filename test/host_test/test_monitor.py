@@ -2,6 +2,7 @@
 #
 # SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
+import codecs
 import datetime
 import errno
 import filecmp
@@ -38,6 +39,7 @@ from esp_idf_monitor.base.constants import CMD_TOGGLE_TIMESTAMPS
 from esp_idf_monitor.base.constants import TAG_CMD
 from esp_idf_monitor.base.constants import TAG_KEY
 from esp_idf_monitor.base.logger import Logger
+from esp_idf_monitor.idf_monitor import Monitor
 
 from .conftest import out_dir
 
@@ -1089,6 +1091,27 @@ class TestLogger:
         assert b'Stack dump detected' in content
         assert b'[yellow]' not in content
         assert b'Core  0 register dump:' in content
+
+
+class TestTagKeyEncoding:
+    """Regression tests for encoding console key events for the serial port."""
+
+    def test_surrogateescape_key_roundtrips_to_raw_byte(self):
+        """Invalid UTF-8 stdin bytes must not crash TAG_KEY handling (issue #44)."""
+        written = []
+        monitor = object.__new__(Monitor)
+        monitor.cmd_queue = queue.Queue()
+        monitor.event_queue = queue.Queue()
+        monitor.serial_write = written.append  # type: ignore[method-assign]
+
+        data = b'\xe3'.decode('utf-8', 'surrogateescape')
+        monitor.event_queue.put((TAG_KEY, data))
+        monitor._main_loop()
+
+        assert written == [b'\xe3']
+        # sanity: the previous strict encode path would have raised
+        with pytest.raises(UnicodeEncodeError):
+            codecs.encode(data)
 
 
 class TestCommandReader:
