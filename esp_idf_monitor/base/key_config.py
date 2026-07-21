@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import Optional
@@ -32,6 +32,7 @@ EXIT_KEY = key_to_hex(cfg.get('exit_key'), ']')
 CHIP_RESET_KEY = key_to_hex(cfg.get('chip_reset_key'), 'R')
 RECOMPILE_UPLOAD_KEY = key_to_hex(cfg.get('recompile_upload_key'), 'F')
 RECOMPILE_UPLOAD_APP_KEY = key_to_hex(cfg.get('recompile_upload_app_key'), 'A')
+RECOMPILE_UPLOAD_ALL_KEY = key_to_hex(cfg.get('recompile_upload_all_key'), 'E')
 TOGGLE_OUTPUT_KEY = key_to_hex(cfg.get('toggle_output_key'), 'Y')
 TOGGLE_LOG_KEY = key_to_hex(cfg.get('toggle_log_key'), 'L')
 TOGGLE_TIMESTAMPS_KEY = key_to_hex(cfg.get('toggle_timestamp_key'), 'I')
@@ -48,6 +49,7 @@ COMMAND_KEYS = [
     CHIP_RESET_KEY,
     RECOMPILE_UPLOAD_KEY,
     RECOMPILE_UPLOAD_APP_KEY,
+    RECOMPILE_UPLOAD_ALL_KEY,
     TOGGLE_OUTPUT_KEY,
     TOGGLE_LOG_KEY,
     TOGGLE_TIMESTAMPS_KEY,

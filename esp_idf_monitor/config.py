@@ -18,6 +18,7 @@ VALID_OPTIONS = [
     'chip_reset_key',
     'recompile_upload_key',
     'recompile_upload_app_key',
+    'recompile_upload_all_key',
     'toggle_output_key',
     'toggle_log_key',
     'toggle_timestamp_key',

@@ -3,8 +3,9 @@
 # esp-idf serial output monitor tool. Does some helpful things:
 # - Looks up hex addresses in ELF file with addr2line
 # - Reset ESP32 via serial RTS line (Ctrl-T Ctrl-R)
-# - Run flash build target to rebuild and flash entire project (Ctrl-T Ctrl-F)
+# - Run flash build target to rebuild and flash entire project (Ctrl-T Ctrl-F; fast reflash by default)
 # - Run app-flash build target to rebuild and flash app only (Ctrl-T Ctrl-A)
+# - Run full flash of the project, disabling fast reflash (Ctrl-T Ctrl-E)
 # - If gdbstub output is detected, gdb is automatically loaded
 # - If core dump output is detected, it is converted to a human-readable report
 #   by espcoredump.py.
@@ -31,6 +32,7 @@ import threading
 import time
 from types import FrameType  # noqa: F401
 from typing import Callable  # noqa: F401
+from typing import Dict  # noqa: F401
 from typing import List  # noqa: F401
 from typing import NoReturn  # noqa: F401
 from typing import Optional  # noqa: F401
@@ -252,7 +254,11 @@ class Monitor:
                 log.warn(f"ELF file '{elf_file}' does not exist")
         return exists
 
-    def run_make(self, target: str) -> None:
+    def run_make(self, target: str, env_extra: Optional[Dict[str, str]] = None) -> None:
+        # Run a build-system target (e.g. flash / app-flash). env_extra adds
+        # variables to the subprocess environment, letting callers influence the
+        # build without target-specific parameters here (e.g. IDF_FLASH_FULL=1
+        # for a full flash).
         with self:
             run_make(
                 target,
@@ -263,6 +269,7 @@ class Monitor:
                 self.cmd_queue,
                 self.logger,
                 non_interactive=self.non_interactive,
+                env_extra=env_extra,
             )
 
     def _pre_start(self) -> None:

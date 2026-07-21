@@ -72,7 +72,8 @@ printf 'reset\nexpect ALL TESTS PASSED\n' | idf-monitor /dev/ttyUSB0
 | Command | Action |
 | --- | --- |
 | `reset` | Hard-reset the chip via the RTS line |
-| `flash` | Run the make / `idf.py` `flash` target |
+| `flash` | Run the make / `idf.py` `flash` target (fast reflash by default with ESP-IDF 6.1+) |
+| `flash-all` | Run the `flash` target with full flash (disable fast reflash; equivalent to `idf.py flash -a`, ESP-IDF 6.1+) |
 | `app-flash` | Run the make / `idf.py` `app-flash` target |
 | `send <text>` | Send `<text>` followed by the end-of-line to the device |
 | `sleep <seconds>` | Pause the script for the given time while serial output keeps flowing (accepts floats and `inf`) |
@@ -155,22 +156,23 @@ A different location for the configuration file can be specified with the `ESP_I
 
 Below is a table listing the available configuration options:
 
-| Option Name                  | Description                                              | Default Value  |
-|------------------------------|----------------------------------------------------------|----------------|
-| `menu_key`                   | Key to access the main menu.                             | `T`            |
-| `exit_key`                   | Key to exit the monitor.                                 | `]`            |
-| `chip_reset_key`             | Key to initiate a chip reset.                            | `R`            |
-| `recompile_upload_key`       | Key to recompile and upload.                             | `F`            |
-| `recompile_upload_app_key`   | Key to recompile and upload just the application.        | `A`            |
-| `toggle_output_key`          | Key to toggle the output display.                        | `Y`            |
-| `toggle_log_key`             | Key to toggle the logging feature.                       | `L`            |
-| `toggle_timestamp_key`       | Key to toggle timestamp display.                         | `I`            |
-| `chip_reset_bootloader_key`  | Key to reset the chip to bootloader mode.                | `P`            |
-| `exit_menu_key`              | Key to exit the monitor from the menu.                   | `X`            |
-| `skip_menu_key`              | Pressing the menu key can be skipped for menu commands.  | `False`        |
-| `reconnect_delay`            | Delay between reconnect retries (in seconds).            | 0.5            |
-| `custom_reset_sequence`      | Custom reset sequence for resetting into the bootloader. | N/A            |
-| `custom_hard_reset_sequence` | Custom reset sequence for hard resetting the chip.       | N/A            |
+| Option Name                  | Description                                                | Default Value  |
+|------------------------------|------------------------------------------------------------|----------------|
+| `menu_key`                   | Key to access the main menu.                               | `T`            |
+| `exit_key`                   | Key to exit the monitor.                                   | `]`            |
+| `chip_reset_key`             | Key to initiate a chip reset.                              | `R`            |
+| `recompile_upload_key`       | Key to recompile and flash (fast reflash on ESP-IDF 6.1+). | `F`            |
+| `recompile_upload_app_key`   | Key to recompile and flash just the application.           | `A`            |
+| `recompile_upload_all_key`   | Key to recompile and full flash (ESP-IDF 6.1+).            | `E`            |
+| `toggle_output_key`          | Key to toggle the output display.                          | `Y`            |
+| `toggle_log_key`             | Key to toggle the logging feature.                         | `L`            |
+| `toggle_timestamp_key`       | Key to toggle timestamp display.                           | `I`            |
+| `chip_reset_bootloader_key`  | Key to reset the chip to bootloader mode.                  | `P`            |
+| `exit_menu_key`              | Key to exit the monitor from the menu.                     | `X`            |
+| `skip_menu_key`              | Pressing the menu key can be skipped for menu commands.    | `False`        |
+| `reconnect_delay`            | Delay between reconnect retries (in seconds).              | 0.5            |
+| `custom_reset_sequence`      | Custom reset sequence for resetting into the bootloader.   | N/A            |
+| `custom_hard_reset_sequence` | Custom reset sequence for hard resetting the chip.         | N/A            |
 
 #### Custom Reset Sequences
 
@@ -230,6 +232,7 @@ exit_key = ]
 chip_reset_key = R
 recompile_upload_key = F
 recompile_upload_app_key = A
+recompile_upload_all_key = E
 toggle_output_key = Y
 toggle_log_key = L
 toggle_timestamp_key = I
