@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2018-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 import codecs
 import datetime
@@ -30,6 +30,7 @@ from esp_idf_monitor.base.command_reader import CommandReader
 from esp_idf_monitor.base.console_parser import ConsoleParser
 from esp_idf_monitor.base.constants import CMD_APP_FLASH
 from esp_idf_monitor.base.constants import CMD_ENTER_BOOT
+from esp_idf_monitor.base.constants import CMD_FLASH_ALL
 from esp_idf_monitor.base.constants import CMD_MAKE
 from esp_idf_monitor.base.constants import CMD_OUTPUT_TOGGLE
 from esp_idf_monitor.base.constants import CMD_RESET
@@ -379,6 +380,20 @@ class TestHost(TestBaseClass):
         assert 'Running make app-flash...' in stderr  # Triggered by TA
         assert 'Running make flash...' in stderr  # TF
         assert 'Unknown menu character Ctrl+J' in stderr  # TJ
+
+    @pytest.mark.skipif(os.name == 'nt', reason='Linux/MacOS only')
+    def test_upload_all_command(self):
+        """Run monitor with full flash (Ctrl-T Ctrl-E) command"""
+        out, err = self.run_monitor_async()
+        self.send_control('TE')  # make full flash
+        time.sleep(1)  # wait for make to run
+        self.send_control('TX')
+        assert self.close_monitor_async() == 0
+
+        with open(err) as f_err:
+            stderr = f_err.read()
+        assert 'Running make flash...' in stderr
+        assert 'make flash -a' not in stderr
 
     @pytest.mark.skipif(os.name == 'nt', reason='Linux/MacOS only')
     def test_log(self):
@@ -1093,6 +1108,98 @@ class TestLogger:
         assert b'Core  0 register dump:' in content
 
 
+class TestFlashAllCommands:
+    """Unit tests for full-flash (fast-reflash disable) keyboard / make wiring."""
+
+    class _FakeLogger:
+        output_enabled = False
+
+    @staticmethod
+    def _patch_popen(monkeypatch, *, returncode=0, captured=None):
+        from esp_idf_monitor.base import serial_handler
+
+        class FakePopen:
+            def __init__(self, args, env=None):
+                if captured is not None:
+                    captured['args'] = list(args)
+                    captured['env'] = env
+                self.returncode = returncode
+
+            def wait(self):
+                return self.returncode
+
+        monkeypatch.setattr(serial_handler.subprocess, 'Popen', FakePopen)
+
+    def _run_make(self, **kwargs):
+        from esp_idf_monitor.base import serial_handler
+
+        serial_handler.run_make(
+            kwargs.pop('target', 'flash'),
+            kwargs.pop('make', ['python', 'idf.py']),
+            console=None,
+            console_parser=None,
+            event_queue=None,
+            cmd_queue=None,
+            logger=self._FakeLogger(),
+            **kwargs,
+        )
+
+    def test_console_parser_flash_all_key(self):
+        """Menu + Ctrl-E / E maps to CMD_FLASH_ALL."""
+        from esp_idf_monitor.base.key_config import MENU_KEY
+        from esp_idf_monitor.base.key_config import RECOMPILE_UPLOAD_ALL_KEY
+
+        parser = ConsoleParser()
+        assert parser.parse(MENU_KEY) is None
+        assert parser.parse(RECOMPILE_UPLOAD_ALL_KEY) == (TAG_CMD, CMD_FLASH_ALL)
+
+        parser = ConsoleParser()
+        assert parser.parse(MENU_KEY) is None
+        assert parser.parse('E') == (TAG_CMD, CMD_FLASH_ALL)
+
+    def test_help_mentions_full_flash(self):
+        help_text = ConsoleParser().get_help_text()
+        assert 'Build & flash project (fast reflash, ESP-IDF 6.1+)' in help_text
+        assert 'Build & full flash project' in help_text
+
+    def test_run_make_forwards_env_without_extra_args(self, monkeypatch):
+        """run_make merges env_extra into the subprocess env and adds no CLI flags."""
+        captured = {}
+        self._patch_popen(monkeypatch, captured=captured)
+        self._run_make(env_extra={'IDF_FLASH_FULL': '1'})
+        assert captured['args'] == ['python', 'idf.py', 'flash']
+        assert captured['env']['IDF_FLASH_FULL'] == '1'
+
+    def test_flash_all_dispatch_sets_full_flash_env(self):
+        """CMD_FLASH_ALL runs the flash target with IDF_FLASH_FULL=1; other paths set no env."""
+        from esp_idf_monitor.base.serial_handler import SerialHandler
+
+        calls = []
+
+        def fake_run_make(target, **kwargs):
+            calls.append((target, kwargs))
+
+        # object.__new__ skips __init__; these command branches only read .encrypted.
+        handler = object.__new__(SerialHandler)
+
+        # Full flash: exports IDF_FLASH_FULL=1, no -a flag.
+        handler.encrypted = False
+        handler.handle_commands(CMD_FLASH_ALL, 'esp32', fake_run_make, None, None)
+        assert calls == [('flash', {'env_extra': {'IDF_FLASH_FULL': '1'}})]
+
+        # Encrypted full flash: esptool forces a full flash itself, so no env var.
+        calls.clear()
+        handler.encrypted = True
+        handler.handle_commands(CMD_FLASH_ALL, 'esp32', fake_run_make, None, None)
+        assert calls == [('encrypted-flash', {})]
+
+        # Normal flash must not request a full flash.
+        calls.clear()
+        handler.encrypted = False
+        handler.handle_commands(CMD_MAKE, 'esp32', fake_run_make, None, None)
+        assert calls == [('flash', {})]
+
+
 class TestTagKeyEncoding:
     """Regression tests for encoding console key events for the serial port."""
 
@@ -1138,6 +1245,7 @@ class TestCommandReader:
         [
             ('reset', CMD_RESET),
             ('flash', CMD_MAKE),
+            ('flash-all', CMD_FLASH_ALL),
             ('app-flash', CMD_APP_FLASH),
             ('output', CMD_OUTPUT_TOGGLE),
             ('log', CMD_TOGGLE_LOGGING),

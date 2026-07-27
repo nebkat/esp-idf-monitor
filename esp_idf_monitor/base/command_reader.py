@@ -15,6 +15,7 @@ from rich.markup import escape
 from .console_parser import ConsoleParser  # noqa: F401
 from .constants import CMD_APP_FLASH
 from .constants import CMD_ENTER_BOOT
+from .constants import CMD_FLASH_ALL
 from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
@@ -68,7 +69,8 @@ class CommandReader(StoppableThread):
 
     COMMANDS = {
         'reset': CMD_RESET,  # reset the chip via RTS
-        'flash': CMD_MAKE,  # run make/idf.py flash
+        'flash': CMD_MAKE,  # run make/idf.py flash (fast reflash by default)
+        'flash-all': CMD_FLASH_ALL,  # run make/idf.py flash -a (full flash)
         'app-flash': CMD_APP_FLASH,  # run make/idf.py app-flash
         'output': CMD_OUTPUT_TOGGLE,  # toggle output display
         'log': CMD_TOGGLE_LOGGING,  # toggle logging to file

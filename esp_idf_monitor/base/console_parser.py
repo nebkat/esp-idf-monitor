@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import queue  # noqa: F401
@@ -14,6 +14,7 @@ from esp_idf_monitor import __version__
 
 from .constants import CMD_APP_FLASH
 from .constants import CMD_ENTER_BOOT
+from .constants import CMD_FLASH_ALL
 from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
@@ -29,6 +30,7 @@ from .key_config import COMMAND_KEYS
 from .key_config import EXIT_KEY
 from .key_config import EXIT_MENU_KEY
 from .key_config import MENU_KEY
+from .key_config import RECOMPILE_UPLOAD_ALL_KEY
 from .key_config import RECOMPILE_UPLOAD_APP_KEY
 from .key_config import RECOMPILE_UPLOAD_KEY
 from .key_config import SKIP_MENU_KEY
@@ -92,12 +94,14 @@ class ConsoleParser:
             log.print(self.get_help_text(), style='red bold')
         elif c == CHIP_RESET_KEY:  # Reset device via RTS
             ret = (TAG_CMD, CMD_RESET)
-        elif c == RECOMPILE_UPLOAD_KEY:  # Recompile & upload
+        elif c == RECOMPILE_UPLOAD_KEY:  # Recompile & upload (fast reflash by default with idf.py)
             ret = (TAG_CMD, CMD_MAKE)
         elif c in [RECOMPILE_UPLOAD_APP_KEY, 'a', 'A']:  # Recompile & upload app only
             # "CTRL-A" cannot be captured with the default settings of the Windows command line, therefore,
             # "A" can be used instead
             ret = (TAG_CMD, CMD_APP_FLASH)
+        elif c in [RECOMPILE_UPLOAD_ALL_KEY, 'e', 'E']:  # Recompile & full flash (disable fast reflash)
+            ret = (TAG_CMD, CMD_FLASH_ALL)
         elif c == TOGGLE_OUTPUT_KEY:  # Toggle output display
             ret = (TAG_CMD, CMD_OUTPUT_TOGGLE)
         elif c == TOGGLE_LOG_KEY:  # Toggle saving output into file
@@ -126,8 +130,9 @@ class ConsoleParser:
                {key_description(MENU_KEY):14} Send the menu character itself to remote
                {key_description(EXIT_KEY):14} Send the exit character itself to remote
                {key_description(CHIP_RESET_KEY):14} Reset target board via RTS line
-               {key_description(RECOMPILE_UPLOAD_KEY):14} Build & flash project
+               {key_description(RECOMPILE_UPLOAD_KEY):14} Build & flash project (fast reflash, ESP-IDF 6.1+)
                {key_description(RECOMPILE_UPLOAD_APP_KEY) + ' (or A)':14} Build & flash app only
+               {key_description(RECOMPILE_UPLOAD_ALL_KEY) + ' (or E)':14} Build & full flash project
                {key_description(TOGGLE_OUTPUT_KEY):14} Toggle output display
                {key_description(TOGGLE_LOG_KEY):14} Toggle saving output into file
                {key_description(TOGGLE_TIMESTAMPS_KEY) + ' (or I)':14} Toggle printing timestamps
@@ -145,6 +150,7 @@ class ConsoleParser:
             Press {key_description(EXIT_KEY)} to exit monitor.
             Press {key_description(RECOMPILE_UPLOAD_KEY)} to build & flash project.
             Press {key_description(RECOMPILE_UPLOAD_APP_KEY)} to build & flash app.
+            Press {key_description(RECOMPILE_UPLOAD_ALL_KEY)} to build & full flash project.
             Press any other key to resume monitor (resets target).
         """
         return textwrap.dedent(text)
@@ -159,4 +165,6 @@ class ConsoleParser:
             # "CTRL-A" cannot be captured with the default settings of the Windows command line, therefore,
             # "A" can be used instead
             ret = (TAG_CMD, CMD_APP_FLASH)
+        elif c in [RECOMPILE_UPLOAD_ALL_KEY, 'e', 'E']:  # Recompile & full flash
+            ret = (TAG_CMD, CMD_FLASH_ALL)
         return ret

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 from esp_idf_monitor.base.key_config import cfg
@@ -19,6 +19,7 @@ CMD_OUTPUT_TOGGLE = 5
 CMD_TOGGLE_LOGGING = 6
 CMD_ENTER_BOOT = 7
 CMD_TOGGLE_TIMESTAMPS = 8
+CMD_FLASH_ALL = 9
 
 # Tags for tuples in queues
 TAG_KEY = 0

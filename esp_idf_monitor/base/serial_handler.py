@@ -7,6 +7,7 @@ import queue  # noqa: F401
 import re
 import subprocess
 from typing import Callable  # noqa: F401
+from typing import Dict  # noqa: F401
 from typing import List  # noqa: F401
 from typing import Optional  # noqa: F401
 from typing import Union  # noqa: F401
@@ -22,6 +23,7 @@ from .console_parser import key_description  # noqa: F401
 from .console_parser import prompt_next_action  # noqa: F401
 from .constants import CMD_APP_FLASH
 from .constants import CMD_ENTER_BOOT
+from .constants import CMD_FLASH_ALL
 from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
@@ -61,14 +63,27 @@ def get_sha256(filename, block_size=65536):  # type: (str, int) -> str
     return sha256.hexdigest()
 
 
-def run_make(target, make, console, console_parser, event_queue, cmd_queue, logger, non_interactive=False):
-    # type: (str, Union[str, List[str]], miniterm.Console, ConsoleParser, queue.Queue, queue.Queue, Logger, bool) -> None
+def run_make(
+    target,
+    make,
+    console,
+    console_parser,
+    event_queue,
+    cmd_queue,
+    logger,
+    non_interactive=False,
+    env_extra=None,
+):
+    # type: (str, Union[str, List[str]], miniterm.Console, ConsoleParser, queue.Queue, queue.Queue, Logger, bool, Optional[Dict[str, str]]) -> None
     if isinstance(make, list):
         popen_args = make + [target]
     else:
         popen_args = [make, target]
     log.note(f'Running {" ".join(popen_args)}...')
-    p = subprocess.Popen(popen_args, env=os.environ)
+    env = os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+    p = subprocess.Popen(popen_args, env=env)
     try:
         p.wait()
     except KeyboardInterrupt:
@@ -361,7 +376,7 @@ class SerialHandler:
         # type: (int, str, Callable, StoppableThread, Reader) -> None
 
         if chip == 'linux':
-            if cmd in [CMD_RESET, CMD_MAKE, CMD_APP_FLASH, CMD_ENTER_BOOT]:
+            if cmd in [CMD_RESET, CMD_MAKE, CMD_APP_FLASH, CMD_FLASH_ALL, CMD_ENTER_BOOT]:
                 log.warn('Linux target does not support this command')
                 return
 
@@ -375,6 +390,17 @@ class SerialHandler:
             run_make_func('encrypted-flash' if self.encrypted else 'flash')
         elif cmd == CMD_APP_FLASH:
             run_make_func('encrypted-app-flash' if self.encrypted else 'app-flash')
+        elif cmd == CMD_FLASH_ALL:
+            # Full flash: disable fast reflashing by exporting IDF_FLASH_FULL=1 for
+            # the build system (run_serial_tool.cmake reads it at flash time). This
+            # is what "idf.py flash -a/--all" does internally, so it works for both
+            # make and idf.py, and is ignored by pre-6.1 ESP-IDF (which always does
+            # a full flash anyway). Encrypted flash needs nothing extra: esptool
+            # detects encrypted binaries and forces a full flash itself.
+            if self.encrypted:
+                run_make_func('encrypted-flash')
+            else:
+                run_make_func('flash', env_extra={'IDF_FLASH_FULL': '1'})
         elif cmd == CMD_OUTPUT_TOGGLE:
             self.logger.output_toggle()
         elif cmd == CMD_TOGGLE_LOGGING:
