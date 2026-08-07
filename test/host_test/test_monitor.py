@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 from esp_pylib.logger import log
 
+from esp_idf_monitor import __version__
 from esp_idf_monitor.base.binlog import BinaryLog
 from esp_idf_monitor.base.command_reader import CommandReader
 from esp_idf_monitor.base.console_parser import ConsoleParser
@@ -357,7 +358,7 @@ class TestHost(TestBaseClass):
         with open(err) as f:
             stderr = f.read()
         # check if monitor is running on RFC2217 port
-        regex = re.compile(rf"--- esp-idf-monitor \d\.\d(\.\d)? on {re.escape(rfc2217)} \d*")
+        regex = re.compile(rf'--- esp-idf-monitor {re.escape(__version__)} on {re.escape(rfc2217)} \d*')
         assert regex.search(stderr) is not None
         assert 'Exception' not in stderr
         assert f"Expect pattern '{STOP_MARKER}' matched" in stderr
