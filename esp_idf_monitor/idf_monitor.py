@@ -541,6 +541,7 @@ def _run_monitor(
 
     elf_files_list = list(elf_files)
 
+    exit_code = 0
     try:
         cls: Type[Monitor]
         if target == 'linux':
@@ -616,7 +617,7 @@ def _run_monitor(
             monitor.logger.start_logging()
 
         if non_interactive:
-            extras = ['send <text>', 'sleep <seconds>', 'expect <regex>', 'exit']
+            extras = ['send <text>', 'sleep <seconds>', 'expect [--timeout <seconds>] <regex>', 'exit']
             log.print(
                 'Standard input is not a TTY, running in non-interactive mode. Reading commands '
                 f'from stdin: {", ".join(list(CommandReader.COMMANDS) + extras)} '
@@ -639,11 +640,18 @@ def _run_monitor(
             log.print(f'Print filter: "{print_filter}"{msg}', style='yellow')
         Config().load_configuration(verbose=True)
         monitor.main_loop()
+        # In non-interactive mode the console reader is the CommandReader which
+        # writes its exit code before queuing the stop the main loop has just
+        # processed, so it is up to date here.
+        if isinstance(monitor.console_reader, CommandReader):
+            exit_code = monitor.console_reader.exit_code
     except KeyboardInterrupt:
         pass
     finally:
         if ws_client:
             ws_client.close()
+    if exit_code:
+        sys.exit(exit_code)
 
 
 def main() -> None:
