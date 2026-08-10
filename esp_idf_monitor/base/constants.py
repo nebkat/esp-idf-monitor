@@ -21,6 +21,18 @@ CMD_ENTER_BOOT = 7
 CMD_TOGGLE_TIMESTAMPS = 8
 CMD_FLASH_ALL = 9
 
+# Process exit code of a script that timed out waiting for 'expect' in the
+# non-interactive command mode, so that CI can tell it apart from a clean run.
+# This is ETIMEDOUT on Linux, hardcoded on purpose: errno.ETIMEDOUT differs
+# per platform (110 on Linux, 60 on macOS, 138 on Windows) and a script
+# checking the exit code has to work the same everywhere.
+EXIT_EXPECT_TIMEOUT = 110
+
+# Generic non-zero exit code for script errors (invalid regex, bad --timeout
+# arguments, etc.) in non-interactive command mode. Matches the convention used
+# by argparse, grep, and bash for usage/syntax errors.
+EXIT_SCRIPT_ERROR = 2
+
 # Tags for tuples in queues
 TAG_KEY = 0
 TAG_SERIAL = 1

@@ -37,6 +37,8 @@ from esp_idf_monitor.base.constants import CMD_RESET
 from esp_idf_monitor.base.constants import CMD_STOP
 from esp_idf_monitor.base.constants import CMD_TOGGLE_LOGGING
 from esp_idf_monitor.base.constants import CMD_TOGGLE_TIMESTAMPS
+from esp_idf_monitor.base.constants import EXIT_EXPECT_TIMEOUT
+from esp_idf_monitor.base.constants import EXIT_SCRIPT_ERROR
 from esp_idf_monitor.base.constants import TAG_CMD
 from esp_idf_monitor.base.constants import TAG_KEY
 from esp_idf_monitor.base.logger import Logger
@@ -1309,6 +1311,7 @@ class TestCommandReader:
         event_queue, reader = self._reader()
         assert reader._handle_line('expect [unterminated') is False
         assert self._drain(event_queue) == [(TAG_CMD, CMD_STOP)]
+        assert reader.exit_code == EXIT_SCRIPT_ERROR
 
     def test_expect_observe_line_matches_pattern(self):
         """observe_line wakes a pending 'expect' when a serial line matches."""
@@ -1365,6 +1368,120 @@ class TestCommandReader:
         reader._handle_line('reset')  # must not drop the buffer
         reader._expect(re.compile('READY'))  # still matched
         assert reader._expect_matched.is_set()
+
+    # --- expect --timeout parsing tests ---
+
+    @pytest.mark.parametrize(
+        'line, expected_pattern, expected_timeout',
+        [
+            ('expect --timeout 10 Hello world!', 'Hello world!', 10.0),
+            ('expect --timeout 0.5 READY$', 'READY$', 0.5),
+            (
+                r'expect --timeout 10 Minimum free heap size: \d+ bytes$',
+                r'Minimum free heap size: \d+ bytes$',
+                10.0,
+            ),
+            ('expect --timeout 10 42', '42', 10.0),
+            ('expect 10', '10', None),
+        ],
+        ids=['basic', 'float_seconds', 'pattern_with_spaces', 'numeric_pattern', 'untimed_digits'],
+    )
+    def test_expect_timeout_parsing(self, line, expected_pattern, expected_timeout):
+        """Valid 'expect' lines parse into the expected pattern and timeout."""
+        _, reader = self._reader()
+
+        def mock_expect(pattern, timeout=None):
+            mock_expect.called_with = (pattern.pattern, timeout)
+            return True  # pretend the pattern matched
+
+        reader._expect = mock_expect  # type: ignore[assignment]
+        assert reader._handle_line(line) is True
+        assert mock_expect.called_with == (expected_pattern, expected_timeout)
+
+    @pytest.mark.parametrize(
+        'line',
+        [
+            'expect --timeout 10',  # missing regex
+            'expect --timeout',  # missing seconds and regex
+            'expect --timeout abc Hello',  # non-numeric seconds
+            'expect --timeout 0 Hello',  # zero seconds
+            'expect --timeout -1 Hello',  # negative seconds
+            'expect --timeout inf Hello',  # infinite seconds
+            'expect --timeout nan Hello',  # NaN seconds
+        ],
+    )
+    def test_expect_timeout_invalid_usage_stops_reader(self, line: str):
+        """Invalid --timeout usage aborts the script: stop is queued and reading stops."""
+        event_queue, reader = self._reader()
+        assert reader._handle_line(line) is False
+        assert self._drain(event_queue) == [(TAG_CMD, CMD_STOP)]
+        assert reader.exit_code == EXIT_SCRIPT_ERROR
+
+    def test_expect_timeout_match_before_deadline(self):
+        """'expect --timeout' returns immediately when the pattern matches from the buffer."""
+        _, reader = self._reader()
+        reader.observe_line('I (1) app: READY')
+        assert reader._expect(re.compile('READY'), timeout=10.0) is True
+        assert reader._expect_matched.is_set()
+
+    def test_expect_timeout_expires_without_match(self):
+        """'expect --timeout 0.2' gives up after the timeout when no line matches."""
+        _, reader = self._reader()
+        reader._thread = threading.current_thread()  # make alive=True
+        start = time.monotonic()
+        assert reader._expect(re.compile('NEVER_APPEARS'), timeout=0.2) is False
+        elapsed = time.monotonic() - start
+        assert not reader._expect_matched.is_set()
+        assert elapsed >= 0.2
+        assert elapsed < 2.0  # should not hang
+
+    def test_expect_timeout_aborts_script(self):
+        """A timed out 'expect' queues the stop and stops reading further commands."""
+        event_queue, reader = self._reader()
+        reader._thread = threading.current_thread()  # make alive=True
+        assert reader._handle_line('expect --timeout 0.2 NEVER_APPEARS') is False
+        assert self._drain(event_queue) == [(TAG_CMD, CMD_STOP)]
+        assert reader.exit_code == EXIT_EXPECT_TIMEOUT
+
+    def test_expect_stopped_while_waiting_is_not_a_timeout(self):
+        """Being stopped (Ctrl+C, SIGTERM) while waiting does not count as a timeout."""
+        _, reader = self._reader()
+        reader._thread = threading.current_thread()  # make alive=True
+
+        def delayed_stop():
+            time.sleep(0.2)
+            reader._thread = None  # what stop() does
+
+        t = threading.Thread(target=delayed_stop)
+        t.start()
+        assert reader._expect(re.compile('NEVER_APPEARS'), timeout=60.0) is True
+        t.join()
+        assert not reader._expect_matched.is_set()
+
+    def test_expect_timeout_match_from_observe_before_deadline(self):
+        """A line arriving via observe_line before the timeout fires is still a match."""
+        _, reader = self._reader()
+        reader._thread = threading.current_thread()  # make alive=True
+
+        def delayed_observe():
+            time.sleep(0.1)
+            reader.observe_line('device READY now')
+
+        t = threading.Thread(target=delayed_observe)
+        t.start()
+        assert reader._expect(re.compile('READY'), timeout=5.0) is True
+        t.join()
+        assert reader._expect_matched.is_set()
+
+    def test_expect_timeout_lookback_buffer_ignores_remaining_timeout(self):
+        """A buffered match returns immediately even if a long timeout was set."""
+        _, reader = self._reader()
+        reader.observe_line('the MATCH line')
+        start = time.monotonic()
+        assert reader._expect(re.compile('MATCH'), timeout=60.0) is True
+        elapsed = time.monotonic() - start
+        assert reader._expect_matched.is_set()
+        assert elapsed < 1.0  # immediate, not waiting 60s
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='Linux/MacOS only')
@@ -1500,3 +1617,23 @@ class TestCommandMode(TestBaseClass):
         with open(err) as f_err:
             stderr = f_err.read()
         assert 'No commands on standard input, watching serial output only' in stderr
+
+    def test_expect_timeout_aborts_script(self):
+        """'expect --timeout' gives up after the deadline and aborts the rest of the script."""
+        out, err = self.run_monitor_command_mode()
+        clientsocket = self.accept()
+        try:
+            assert self.proc.stdin is not None
+            self.proc.stdin.write(b'expect --timeout 1 THIS_WILL_NOT_APPEAR\nsend NOT_REACHED\n')
+            self.proc.stdin.close()
+            # the pattern never appears on the serial port → timeout fires
+            ret = self.wait_exit(timeout=15)
+        finally:
+            clientsocket.close()
+        assert ret == EXIT_EXPECT_TIMEOUT
+        with open(err) as f_err:
+            stderr = f_err.read()
+        assert 'timed out after 1' in stderr
+        assert 'THIS_WILL_NOT_APPEAR' in stderr
+        # the command after the timed out 'expect' was never read
+        assert 'NOT_REACHED' not in stderr

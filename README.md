@@ -78,6 +78,7 @@ printf 'reset\nexpect ALL TESTS PASSED\n' | idf-monitor /dev/ttyUSB0
 | `send <text>` | Send `<text>` followed by the end-of-line to the device |
 | `sleep <seconds>` | Pause the script for the given time while serial output keeps flowing (accepts floats and `inf`) |
 | `expect <regex>` | Block the script until a serial line matches the [regular expression](https://docs.python.org/3/library/re.html) (using `re.search`) |
+| `expect --timeout <seconds> <regex>` | Like `expect`, but give up after `<seconds>` (a positive float) instead of waiting forever; giving up reports an error and aborts the script |
 | `output` | Toggle printing of the serial output |
 | `log` | Toggle saving the output into a file |
 | `timestamps` | Toggle prepending timestamps to the output |
@@ -95,6 +96,14 @@ The line ending is stripped before an `expect` match, so a `$` anchor works rega
 ```sh
 printf 'expect ALL TESTS PASSED\n' | idf-monitor /dev/ttyUSB0 > test.log
 ```
+
+**Wait for a pattern with a timeout.** Without `--timeout` a script that never sees its pattern hangs forever. With it, the monitor reports an error on standard error after 10 seconds and stops, draining and flushing the log on the way out:
+
+```sh
+printf 'reset\nexpect --timeout 10 Hello world!\n' | idf-monitor /dev/ttyUSB0 > boot.log
+```
+
+The remaining commands of the script are **not** executed after a timeout: the expected output never arrived, so anything following it would run at a wrong moment. The process exits with code `110` so CI can distinguish a timeout from a clean run.
 
 **Reset and capture a few seconds of the boot log.** No `exit` is needed — reaching the end of the script (EOF on standard input) ends the session:
 
