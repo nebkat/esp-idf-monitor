@@ -21,6 +21,32 @@
 <hr>
 
 
+## v1.10.0 (2026-08-27)
+
+### ✨ New Features
+
+- **command_reader**: Add --timeout option to the expect command *(Marek Fiala - b3b8c88)*
+- Add support for fast reflash and full flash *(Peter Dragun - 565a6c8)*
+- Migrate to esp-pylib *(Peter Dragun - 4aa2389)*
+- Add non-interactive command mode for scripting the monitor *(Frantisek Hrbata - 0621bd3)*
+- Support custom_hard_reset_sequence in config *(Alexandre Bezroutchko - 773b63d)*
+- add flag to save log monitor *(eperegrina - 7d4e5d3)*
+- Force quit monitor if multiple stop commands are received *(Peter Dragun - cc820c5)*
+
+### 🐛 Bug Fixes
+
+- **logger**: Write monitor messages to the log file *(Peter Dragun - 24cbf46)*
+- **logger**: Default pc_address_decoder to None when decoding disabled *(Peter Dragun - 7edfee9)*
+- **binlog**: Improve error handling and streamline binary log processing *(Joshua Tag Howard - 143cfe2)*
+- **binlog**: Fixed handling of literal percent sign in format string *(Peter Dragun - 6c56cd3)*
+- Preserve invalid UTF-8 keystrokes with surrogateescape *(Peter Dragun - 2689701)*
+- Treat ESP_IDF_MONITOR_NO_RESET=0/false as disabled *(Peter Dragun - 6a206b9)*
+
+### 🔧 Code Refactoring
+
+- Drop ESP_IDF_MONITOR_TEST in favor of the command mode *(Frantisek Hrbata - a8e6501)*
+
+
 ## v1.9.0 (2026-01-05)
 
 ### ✨ New Features
