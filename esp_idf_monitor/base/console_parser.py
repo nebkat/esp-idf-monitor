@@ -19,6 +19,7 @@ from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
 from .constants import CMD_STOP
+from .constants import CMD_TOGGLE_ADDRESS_DECODING
 from .constants import CMD_TOGGLE_LOGGING
 from .constants import CMD_TOGGLE_TIMESTAMPS
 from .constants import CTRL_H
@@ -34,6 +35,7 @@ from .key_config import RECOMPILE_UPLOAD_ALL_KEY
 from .key_config import RECOMPILE_UPLOAD_APP_KEY
 from .key_config import RECOMPILE_UPLOAD_KEY
 from .key_config import SKIP_MENU_KEY
+from .key_config import TOGGLE_ADDRESS_DECODING_KEY
 from .key_config import TOGGLE_LOG_KEY
 from .key_config import TOGGLE_OUTPUT_KEY
 from .key_config import TOGGLE_TIMESTAMPS_KEY
@@ -108,6 +110,8 @@ class ConsoleParser:
             ret = (TAG_CMD, CMD_TOGGLE_LOGGING)
         elif c in [TOGGLE_TIMESTAMPS_KEY, 'i', 'I']:  # Toggle printing timestamps
             ret = (TAG_CMD, CMD_TOGGLE_TIMESTAMPS)
+        elif c in [TOGGLE_ADDRESS_DECODING_KEY, 'd', 'D']:  # Toggle decoding of addresses
+            ret = (TAG_CMD, CMD_TOGGLE_ADDRESS_DECODING)
         elif c == CHIP_RESET_BOOTLOADER_KEY:
             # to fast trigger pause without press menu key
             ret = (TAG_CMD, CMD_ENTER_BOOT)
@@ -136,6 +140,7 @@ class ConsoleParser:
                {key_description(TOGGLE_OUTPUT_KEY):14} Toggle output display
                {key_description(TOGGLE_LOG_KEY):14} Toggle saving output into file
                {key_description(TOGGLE_TIMESTAMPS_KEY) + ' (or I)':14} Toggle printing timestamps
+               {key_description(TOGGLE_ADDRESS_DECODING_KEY) + ' (or D)':14} Toggle decoding of addresses
                {key_description(CHIP_RESET_BOOTLOADER_KEY):14} Reset target into bootloader via the DTR/RTS lines
                {key_description(EXIT_MENU_KEY) + ' (or X)':14} Exit program"""  # noqa: E501
 

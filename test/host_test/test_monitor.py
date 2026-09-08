@@ -20,6 +20,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
@@ -36,6 +37,7 @@ from esp_idf_monitor.base.constants import CMD_MAKE
 from esp_idf_monitor.base.constants import CMD_OUTPUT_TOGGLE
 from esp_idf_monitor.base.constants import CMD_RESET
 from esp_idf_monitor.base.constants import CMD_STOP
+from esp_idf_monitor.base.constants import CMD_TOGGLE_ADDRESS_DECODING
 from esp_idf_monitor.base.constants import CMD_TOGGLE_LOGGING
 from esp_idf_monitor.base.constants import CMD_TOGGLE_TIMESTAMPS
 from esp_idf_monitor.base.constants import EXIT_EXPECT_TIMEOUT
@@ -1203,6 +1205,88 @@ class TestFlashAllCommands:
         assert calls == [('flash', {})]
 
 
+class TestAddressDecodingToggle:
+    """Unit tests for toggling address decoding at runtime."""
+
+    class _DummyConsole:
+        pass
+
+    def _logger(self, elf_files, enable_address_decoding):
+        # type: (List[str], bool) -> Logger
+        return Logger(
+            elf_files=elf_files,
+            console=self._DummyConsole(),
+            timestamps=False,
+            timestamp_format='',
+            enable_address_decoding=enable_address_decoding,
+            toolchain_prefix='riscv32-esp-elf-',
+        )
+
+    def test_console_parser_toggle_address_decoding_key(self):
+        """Menu + Ctrl-D / D maps to CMD_TOGGLE_ADDRESS_DECODING."""
+        from esp_idf_monitor.base.key_config import MENU_KEY
+        from esp_idf_monitor.base.key_config import TOGGLE_ADDRESS_DECODING_KEY
+
+        for key in (TOGGLE_ADDRESS_DECODING_KEY, 'd', 'D'):
+            parser = ConsoleParser()
+            assert parser.parse(MENU_KEY) is None
+            assert parser.parse(key) == (TAG_CMD, CMD_TOGGLE_ADDRESS_DECODING)
+
+    def test_help_mentions_address_decoding(self):
+        assert 'Toggle decoding of addresses' in ConsoleParser().get_help_text()
+
+    def test_command_dispatch_calls_logger(self):
+        """CMD_TOGGLE_ADDRESS_DECODING reaches Logger.toggle_address_decoding()."""
+        from esp_idf_monitor.base.serial_handler import SerialHandler
+
+        # object.__new__ skips __init__; this command branch only reads .logger.
+        handler = object.__new__(SerialHandler)
+        handler.logger = MagicMock()
+        handler.handle_commands(CMD_TOGGLE_ADDRESS_DECODING, 'esp32', None, None, None)
+        handler.logger.toggle_address_decoding.assert_called_once_with()
+
+    def test_toggle_off_and_on_reuses_decoder(self, tmp_path):
+        """Turning decoding off hides the decoder; turning it back on reuses the instance."""
+        elf = tmp_path / 'example.elf'
+        elf.write_bytes(b'not an ELF')  # a truncated real ELF header makes elftools throw; only existence matters
+
+        logger = self._logger([str(elf)], enable_address_decoding=True)
+        decoder = logger.pc_address_decoder
+        assert decoder is not None
+
+        with patch.object(log, 'print'), patch.object(log, 'note'):
+            logger.toggle_address_decoding()
+            assert logger.pc_address_decoder is None
+
+            logger.toggle_address_decoding()
+            assert logger.pc_address_decoder is decoder
+
+    def test_toggle_on_builds_decoder_lazily(self, tmp_path):
+        """Starting with decoding disabled builds the decoder only once it is enabled."""
+        elf = tmp_path / 'example.elf'
+        elf.write_bytes(b'not an ELF')
+
+        logger = self._logger([str(elf)], enable_address_decoding=False)
+        assert logger.pc_address_decoder is None
+
+        with patch.object(log, 'print'), patch.object(log, 'note'):
+            logger.toggle_address_decoding()
+        assert logger.pc_address_decoder is not None
+
+    @pytest.mark.parametrize('elf_files', [[], ['/nonexistent/example.elf']])
+    @pytest.mark.parametrize('enabled', [True, False])
+    def test_toggle_without_elf_is_rejected(self, elf_files: List[str], enabled: bool):
+        """Without an ELF file there is nothing to decode against, in either direction."""
+        logger = self._logger(elf_files, enable_address_decoding=enabled)
+        before = logger.pc_address_decoder
+
+        with patch.object(log, 'print'), patch.object(log, 'err') as err:
+            logger.toggle_address_decoding()
+
+        assert logger.pc_address_decoder is before
+        assert err.call_count == 1
+
+
 class TestTagKeyEncoding:
     """Regression tests for encoding console key events for the serial port."""
 
@@ -1253,6 +1337,7 @@ class TestCommandReader:
             ('output', CMD_OUTPUT_TOGGLE),
             ('log', CMD_TOGGLE_LOGGING),
             ('timestamps', CMD_TOGGLE_TIMESTAMPS),
+            ('addresses', CMD_TOGGLE_ADDRESS_DECODING),
             ('bootloader', CMD_ENTER_BOOT),
         ],
     )

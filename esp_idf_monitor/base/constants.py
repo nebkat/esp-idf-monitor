@@ -20,6 +20,7 @@ CMD_TOGGLE_LOGGING = 6
 CMD_ENTER_BOOT = 7
 CMD_TOGGLE_TIMESTAMPS = 8
 CMD_FLASH_ALL = 9
+CMD_TOGGLE_ADDRESS_DECODING = 10
 
 # Process exit code of a script that timed out waiting for 'expect' in the
 # non-interactive command mode, so that CI can tell it apart from a clean run.

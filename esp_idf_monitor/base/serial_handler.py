@@ -28,6 +28,7 @@ from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
 from .constants import CMD_STOP
+from .constants import CMD_TOGGLE_ADDRESS_DECODING
 from .constants import CMD_TOGGLE_LOGGING
 from .constants import CMD_TOGGLE_TIMESTAMPS
 from .constants import CONSOLE_STATUS_QUERY
@@ -407,6 +408,8 @@ class SerialHandler:
             self.logger.toggle_logging()
         elif cmd == CMD_TOGGLE_TIMESTAMPS:
             self.logger.toggle_timestamps()
+        elif cmd == CMD_TOGGLE_ADDRESS_DECODING:
+            self.logger.toggle_address_decoding()
         elif cmd == CMD_ENTER_BOOT:
             log.note(
                 'Pause app (enter bootloader mode), press '

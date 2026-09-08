@@ -36,6 +36,7 @@ RECOMPILE_UPLOAD_ALL_KEY = key_to_hex(cfg.get('recompile_upload_all_key'), 'E')
 TOGGLE_OUTPUT_KEY = key_to_hex(cfg.get('toggle_output_key'), 'Y')
 TOGGLE_LOG_KEY = key_to_hex(cfg.get('toggle_log_key'), 'L')
 TOGGLE_TIMESTAMPS_KEY = key_to_hex(cfg.get('toggle_timestamp_key'), 'I')
+TOGGLE_ADDRESS_DECODING_KEY = key_to_hex(cfg.get('toggle_address_decoding_key'), 'D')
 CHIP_RESET_BOOTLOADER_KEY = key_to_hex(cfg.get('chip_reset_bootloader_key'), 'P')
 EXIT_MENU_KEY = key_to_hex(cfg.get('exit_menu_key'), 'X')
 try:
@@ -53,6 +54,7 @@ COMMAND_KEYS = [
     TOGGLE_OUTPUT_KEY,
     TOGGLE_LOG_KEY,
     TOGGLE_TIMESTAMPS_KEY,
+    TOGGLE_ADDRESS_DECODING_KEY,
     CHIP_RESET_BOOTLOADER_KEY,
     EXIT_MENU_KEY,
     SKIP_MENU_KEY,
