@@ -82,6 +82,7 @@ printf 'reset\nexpect ALL TESTS PASSED\n' | idf-monitor /dev/ttyUSB0
 | `output` | Toggle printing of the serial output |
 | `log` | Toggle saving the output into a file |
 | `timestamps` | Toggle prepending timestamps to the output |
+| `addresses` | Toggle decoding of addresses in the output into source locations |
 | `bootloader` | Reset the chip into the download (bootloader) mode |
 | `exit` | Quit the monitor; pending serial output is drained first |
 
@@ -176,6 +177,7 @@ Below is a table listing the available configuration options:
 | `toggle_output_key`          | Key to toggle the output display.                          | `Y`            |
 | `toggle_log_key`             | Key to toggle the logging feature.                         | `L`            |
 | `toggle_timestamp_key`       | Key to toggle timestamp display.                           | `I`            |
+| `toggle_address_decoding_key` | Key to toggle decoding of addresses.                      | `D`            |
 | `chip_reset_bootloader_key`  | Key to reset the chip to bootloader mode.                  | `P`            |
 | `exit_menu_key`              | Key to exit the monitor from the menu.                     | `X`            |
 | `skip_menu_key`              | Pressing the menu key can be skipped for menu commands.    | `False`        |
@@ -245,6 +247,7 @@ recompile_upload_all_key = E
 toggle_output_key = Y
 toggle_log_key = L
 toggle_timestamp_key = I
+toggle_address_decoding_key = D
 chip_reset_bootloader_key = P
 exit_menu_key = X
 skip_menu_key = False

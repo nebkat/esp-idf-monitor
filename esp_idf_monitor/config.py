@@ -22,6 +22,7 @@ VALID_OPTIONS = [
     'toggle_output_key',
     'toggle_log_key',
     'toggle_timestamp_key',
+    'toggle_address_decoding_key',
     'chip_reset_bootloader_key',
     'exit_menu_key',
     'skip_menu_key',

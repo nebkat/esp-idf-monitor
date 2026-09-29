@@ -21,6 +21,7 @@ from .constants import CMD_MAKE
 from .constants import CMD_OUTPUT_TOGGLE
 from .constants import CMD_RESET
 from .constants import CMD_STOP
+from .constants import CMD_TOGGLE_ADDRESS_DECODING
 from .constants import CMD_TOGGLE_LOGGING
 from .constants import CMD_TOGGLE_TIMESTAMPS
 from .constants import EXIT_EXPECT_TIMEOUT
@@ -81,6 +82,7 @@ class CommandReader(StoppableThread):
         'output': CMD_OUTPUT_TOGGLE,  # toggle output display
         'log': CMD_TOGGLE_LOGGING,  # toggle logging to file
         'timestamps': CMD_TOGGLE_TIMESTAMPS,  # toggle timestamps
+        'addresses': CMD_TOGGLE_ADDRESS_DECODING,  # toggle decoding of addresses
         'bootloader': CMD_ENTER_BOOT,  # reset the chip into bootloader
     }
 

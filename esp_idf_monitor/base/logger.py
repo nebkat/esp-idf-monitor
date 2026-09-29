@@ -36,13 +36,21 @@ class Logger:
         self.log_file = None  # type: Optional[BinaryIO]
         self._output_enabled = True  # type: bool
         self._start_of_line = True  # type: bool
-        self.elf_file = elf_files[0] if elf_files else ''
+        self.elf_files = elf_files or []
+        self.elf_file = self.elf_files[0] if self.elf_files else ''
         self.console = console
         self.timestamps = timestamps
         self.timestamp_format = timestamp_format
-        self.pc_address_decoder = None  # always set; SerialHandler may call handlers when ELF exists but decoding off
+        self.toolchain_prefix = toolchain_prefix
+        self.rom_elf_file = rom_elf_file
+        self._address_decoding_enabled = enable_address_decoding  # type: bool
+        self._pc_address_decoder = None  # type: Optional[PcAddressDecoder]
         if enable_address_decoding:
-            self.pc_address_decoder = PcAddressDecoder(toolchain_prefix, elf_files, rom_elf_file)
+            self._pc_address_decoder = PcAddressDecoder(toolchain_prefix, elf_files, rom_elf_file)
+
+    @property
+    def pc_address_decoder(self) -> Optional[PcAddressDecoder]:
+        return self._pc_address_decoder if self._address_decoding_enabled else None
 
     @property
     def pc_address_buffer(self) -> bytes:
@@ -77,6 +85,20 @@ class Logger:
 
     def toggle_timestamps(self):  # type: () -> None
         self.timestamps = not self.timestamps
+
+    def toggle_address_decoding(self):  # type: () -> None
+        if not any(os.path.exists(f) for f in self.elf_files):
+            # No ELF also means SerialHandlerNoElf, which never calls the decoding
+            # handlers, so the flag would change nothing in either direction.
+            log.print('')
+            log.err('Address decoding is unavailable: no ELF file to decode against.')
+            return
+
+        self._address_decoding_enabled = not self._address_decoding_enabled
+        if self._address_decoding_enabled and self._pc_address_decoder is None:
+            self._pc_address_decoder = PcAddressDecoder(self.toolchain_prefix, self.elf_files, self.rom_elf_file)
+        log.print('')
+        log.note(f'Toggle address decoding: {self._address_decoding_enabled}')
 
     def start_logging(self):  # type: () -> None
         if not self._log_file:
